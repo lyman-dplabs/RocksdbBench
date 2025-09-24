@@ -14,8 +14,18 @@ DBManager::~DBManager() {
     close();
 }
 
-bool DBManager::open() {
+bool DBManager::open(bool force_clean) {
     try {
+        if (std::filesystem::exists(db_path_)) {
+            if (force_clean) {
+                if (!clean_data()) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        
         if (!std::filesystem::exists(db_path_)) {
             std::filesystem::create_directories(db_path_);
         }
@@ -40,6 +50,26 @@ void DBManager::close() {
     if (is_open_ && db_) {
         db_->Close();
         is_open_ = false;
+    }
+}
+
+bool DBManager::data_exists() const {
+    return std::filesystem::exists(db_path_) && 
+           (std::filesystem::exists(db_path_ + "/CURRENT") || 
+            std::filesystem::exists(db_path_ + "/MANIFEST-000000"));
+}
+
+bool DBManager::clean_data() {
+    try {
+        if (std::filesystem::exists(db_path_)) {
+            std::uintmax_t removed = std::filesystem::remove_all(db_path_);
+            utils::log_info("Removed existing data directory: {} ({} files)", db_path_, removed);
+            return true;
+        }
+        return true;
+    } catch (const std::exception& e) {
+        utils::log_error("Failed to clean data directory {}: {}", db_path_, e.what());
+        return false;
     }
 }
 

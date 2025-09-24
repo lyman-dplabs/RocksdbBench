@@ -37,8 +37,10 @@ public:
 
     bool write_batch(const std::vector<ChangeSetRecord>& changes, const std::vector<IndexRecord>& indices);
     std::optional<Value> get_historical_state(const std::string& addr_slot, BlockNum target_block_num);
-    bool open();
+    bool open(bool force_clean = false);
     void close();
+    bool data_exists() const;
+    bool clean_data();
 
 private:
     std::string db_path_;

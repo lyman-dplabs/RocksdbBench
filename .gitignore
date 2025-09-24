@@ -43,3 +43,5 @@ Makefile
 vcpkg/buildtrees/
 vcpkg/installed/
 vcpkg/packages/
+
+.cache/
