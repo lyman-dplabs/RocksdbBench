@@ -9,25 +9,29 @@ ScenarioRunner::ScenarioRunner(std::shared_ptr<DBManager> db, std::shared_ptr<Me
 void ScenarioRunner::run_initial_load_phase() {
     utils::log_info("Starting initial load phase...");
     
-    auto all_keys = data_generator_.generate_initial_keys();
+    const auto& all_keys = data_generator_.get_all_keys();
     const size_t batch_size = 10000;
     size_t total_keys = all_keys.size();
     BlockNum current_block = 0;
     
     for (size_t i = 0; i < total_keys; i += batch_size) {
         size_t end_idx = std::min(i + batch_size, total_keys);
+        size_t current_batch_size = end_idx - i;
+        
         std::vector<ChangeSetRecord> changes;
         std::vector<IndexRecord> indices;
+        auto random_values = data_generator_.generate_random_values(current_batch_size);
         
-        changes.reserve(batch_size);
-        indices.reserve(batch_size);
+        changes.reserve(current_batch_size);
+        indices.reserve(current_batch_size);
         
-        for (size_t j = i; j < end_idx; ++j) {
-            ChangeSetRecord change{current_block, all_keys[j], data_generator_.generate_random_value()};
+        for (size_t j = 0; j < current_batch_size; ++j) {
+            size_t key_idx = i + j;
+            ChangeSetRecord change{current_block, all_keys[key_idx], random_values[j]};
             changes.push_back(change);
             
             PageNum page = block_to_page(current_block);
-            IndexRecord index{page, all_keys[j], {current_block}};
+            IndexRecord index{page, all_keys[key_idx], {current_block}};
             indices.push_back(index);
         }
         
@@ -55,6 +59,7 @@ void ScenarioRunner::run_initial_load_phase() {
 void ScenarioRunner::run_hotspot_update_phase() {
     utils::log_info("Starting hotspot update phase...");
     
+    const auto& all_keys = data_generator_.get_all_keys();
     const size_t batch_size = 10000;
     const size_t query_interval = 500000;
     size_t total_processed = 0;
@@ -62,18 +67,19 @@ void ScenarioRunner::run_hotspot_update_phase() {
     
     while (total_processed < 10000000) {
         auto update_indices = data_generator_.generate_hotspot_update_indices(batch_size);
-        auto all_keys = data_generator_.generate_initial_keys();
         
         std::vector<ChangeSetRecord> changes;
         std::vector<IndexRecord> indices;
+        auto random_values = data_generator_.generate_random_values(update_indices.size());
         
-        changes.reserve(batch_size);
-        indices.reserve(batch_size);
+        changes.reserve(update_indices.size());
+        indices.reserve(update_indices.size());
         
-        for (size_t idx : update_indices) {
+        for (size_t i = 0; i < update_indices.size(); ++i) {
+            size_t idx = update_indices[i];
             if (idx >= all_keys.size()) continue;
             
-            ChangeSetRecord change{current_block, all_keys[idx], data_generator_.generate_random_value()};
+            ChangeSetRecord change{current_block, all_keys[idx], random_values[i]};
             changes.push_back(change);
             
             PageNum page = block_to_page(current_block);
@@ -109,7 +115,7 @@ void ScenarioRunner::run_hotspot_update_phase() {
 void ScenarioRunner::run_historical_queries(size_t query_count) {
     utils::log_info("Running {} historical queries...", query_count);
     
-    auto all_keys = data_generator_.generate_initial_keys();
+    const auto& all_keys = data_generator_.get_all_keys();
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<size_t> key_dist(0, all_keys.size() - 1);

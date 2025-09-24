@@ -2,22 +2,48 @@
 #include <random>
 #include <sstream>
 #include <iomanip>
+#include <thread>
+#include <vector>
+#include <mutex>
 
 DataGenerator::DataGenerator(const Config& config) : config_(config), rng_(std::random_device{}()) {
-    all_keys_ = generate_initial_keys();
+    generate_initial_keys_parallel();
 }
 
-std::vector<std::string> DataGenerator::generate_initial_keys() {
-    std::vector<std::string> keys;
-    keys.reserve(config_.total_keys);
+void DataGenerator::generate_initial_keys_parallel() {
+    all_keys_.resize(config_.total_keys);
     
-    for (size_t i = 0; i < config_.total_keys; ++i) {
-        std::string addr = generate_address();
-        std::string slot = generate_slot();
-        keys.push_back(create_addr_slot(addr, slot));
+    const size_t num_threads = std::thread::hardware_concurrency();
+    const size_t keys_per_thread = (config_.total_keys + num_threads - 1) / num_threads;
+    
+    std::vector<std::thread> threads;
+    std::mutex rng_mutex;
+    
+    auto worker = [&](size_t start_idx, size_t end_idx) {
+        std::mt19937 local_rng(std::random_device{}());
+        std::uniform_int_distribution<uint8_t> hex_dist(0, 15);
+        std::uniform_int_distribution<uint32_t> slot_dist(0, 999999);
+        
+        for (size_t i = start_idx; i < end_idx && i < config_.total_keys; ++i) {
+            std::string addr = "0x";
+            for (int j = 0; j < 40; ++j) {
+                addr += "0123456789abcdef"[hex_dist(local_rng)];
+            }
+            
+            std::string slot = "slot" + std::to_string(slot_dist(local_rng));
+            all_keys_[i] = addr + "#" + slot;
+        }
+    };
+    
+    for (size_t t = 0; t < num_threads; ++t) {
+        size_t start = t * keys_per_thread;
+        size_t end = start + keys_per_thread;
+        threads.emplace_back(worker, start, end);
     }
     
-    return keys;
+    for (auto& thread : threads) {
+        thread.join();
+    }
 }
 
 std::vector<size_t> DataGenerator::generate_hotspot_update_indices(size_t batch_size) {
@@ -61,6 +87,22 @@ std::string DataGenerator::generate_random_value() {
     }
     
     return value;
+}
+
+std::vector<std::string> DataGenerator::generate_random_values(size_t count) {
+    std::vector<std::string> values;
+    values.resize(count);
+    
+    std::uniform_int_distribution<uint8_t> dist(1, 255);
+    
+    for (size_t i = 0; i < count; ++i) {
+        values[i].resize(32);
+        for (size_t j = 0; j < 32; ++j) {
+            values[i][j] = static_cast<char>(dist(rng_));
+        }
+    }
+    
+    return values;
 }
 
 std::string DataGenerator::generate_address() {
