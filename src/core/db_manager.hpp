@@ -65,6 +65,9 @@ public:
     
     // Debug function to check bloom filter statistics
     void debug_bloom_filter_stats() const;
+    
+    // Find the latest block number for a key by scanning Index table
+    std::optional<BlockNum> find_latest_block_for_key(const std::string& addr_slot, BlockNum max_known_block) const;
 
 private:
     std::string db_path_;
@@ -75,6 +78,6 @@ private:
     bool is_open_ = false;
     
     rocksdb::Options get_db_options();
-    std::vector<BlockNum> deserialize_block_list(const std::string& data);
+    std::vector<BlockNum> deserialize_block_list(const std::string& data) const;
     std::string serialize_block_list(const std::vector<BlockNum>& blocks);
 };

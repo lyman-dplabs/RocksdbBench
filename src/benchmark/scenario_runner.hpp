@@ -26,13 +26,8 @@ private:
     BlockNum initial_load_end_block_ = 0;
     BlockNum hotspot_update_end_block_ = 0;
     
-    // Track key-block pairs written during initial load to avoid reconstruction
-    struct KeyBlockInfo {
-        size_t key_idx;
-        BlockNum block_num;
-        std::string key;
-    };
-    std::vector<KeyBlockInfo> initial_load_key_blocks_;
+    // Store the keys that were actually written in initial load phase
+    std::vector<std::string> initial_load_keys_;
     
     void run_historical_queries(size_t query_count);
 };

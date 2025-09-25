@@ -20,9 +20,9 @@ void ScenarioRunner::run_initial_load_phase() {
     size_t total_keys = all_keys.size();
     BlockNum current_block = 0;
     
-    // Clear and prepare to track written keys and key-block pairs
-    initial_load_key_blocks_.clear();
-    initial_load_key_blocks_.reserve(total_keys);
+    // Clear and prepare to track written keys
+    initial_load_keys_.clear();
+    initial_load_keys_.reserve(total_keys);
     
     for (size_t i = 0; i < total_keys; i += batch_size) {
         size_t end_idx = std::min(i + batch_size, total_keys);
@@ -44,8 +44,8 @@ void ScenarioRunner::run_initial_load_phase() {
             IndexRecord index{page, all_keys[key_idx], {current_block}};
             indices.push_back(index);
             
-            // Track key-block pair for efficient historical queries
-            initial_load_key_blocks_.push_back({key_idx, current_block, all_keys[key_idx]});
+            // Track this key for historical queries
+            initial_load_keys_.push_back(all_keys[key_idx]);
         }
         
         metrics_collector_->start_write_timer();
@@ -68,8 +68,8 @@ void ScenarioRunner::run_initial_load_phase() {
     
     // Record the actual end block for realistic queries
     initial_load_end_block_ = current_block;
-    utils::log_info("Initial load phase completed. Total blocks written: {}, key-block pairs tracked: {}", 
-                   initial_load_end_block_, initial_load_key_blocks_.size());
+    utils::log_info("Initial load phase completed. Total blocks written: {}, keys tracked: {}", 
+                   initial_load_end_block_, initial_load_keys_.size());
 }
 
 void ScenarioRunner::run_hotspot_update_phase() {
@@ -133,8 +133,8 @@ void ScenarioRunner::run_hotspot_update_phase() {
 void ScenarioRunner::run_historical_queries(size_t query_count) {
     utils::log_info("Running {} historical queries...", query_count);
     
-    if (initial_load_key_blocks_.empty()) {
-        utils::log_error("No initial load key-block pairs available for historical queries");
+    if (initial_load_keys_.empty()) {
+        utils::log_error("No initial load keys available for historical queries");
         return;
     }
     
@@ -153,7 +153,7 @@ void ScenarioRunner::run_historical_queries(size_t query_count) {
     std::uniform_int_distribution<size_t> tail_dist(hot_key_count + medium_key_count, 
                                                    hot_key_count + medium_key_count + tail_key_count - 1);
     
-    utils::log_debug("Using {} pre-built key-block pairs for historical queries", initial_load_key_blocks_.size());
+    utils::log_debug("Using {} initial keys for historical queries", initial_load_keys_.size());
     
     for (size_t i = 0; i < query_count; ++i) {
         // Select key type based on 1:2:7 ratio
@@ -174,12 +174,19 @@ void ScenarioRunner::run_historical_queries(size_t query_count) {
                 key_idx = hot_dist(gen); // fallback
         }
         
-        // Get the corresponding key-block pair (key_idx directly maps to pair index)
-        const auto& pair = initial_load_key_blocks_[key_idx];
+        // Get the actual key (ensure it's within bounds)
+        if (key_idx >= initial_load_keys_.size()) {
+            key_idx = key_idx % initial_load_keys_.size();
+        }
+        const std::string& key = initial_load_keys_[key_idx];
         
-        // Use the actual key and block that were written together
-        const std::string& key = pair.key;
-        BlockNum target_block = pair.block_num;
+        // Find the latest block for this key by searching Index table
+        auto latest_block_opt = db_manager_->find_latest_block_for_key(key, initial_load_end_block_);
+        if (!latest_block_opt) {
+            utils::log_debug("No block found for key {}", key.substr(0, 20));
+            continue; // Skip this query if key not found
+        }
+        BlockNum target_block = *latest_block_opt;
         
         // Determine key type for cache hit analysis based on selection
         std::string key_type_str;

@@ -182,7 +182,7 @@ std::optional<Value> DBManager::get_historical_state(const std::string& addr_slo
     }
 }
 
-std::vector<BlockNum> DBManager::deserialize_block_list(const std::string& data) {
+std::vector<BlockNum> DBManager::deserialize_block_list(const std::string& data) const {
     std::vector<BlockNum> result;
     if (data.size() % sizeof(BlockNum) != 0) return result;
     
@@ -282,6 +282,54 @@ void DBManager::debug_bloom_filter_stats() const {
     utils::log_info("Bloom filter hits: {}", get_bloom_filter_hits());
     utils::log_info("Bloom filter misses: {}", get_bloom_filter_misses());
     utils::log_info("Point query total: {}", get_point_query_total());
+}
+
+std::optional<BlockNum> DBManager::find_latest_block_for_key(const std::string& addr_slot, BlockNum max_known_block) const {
+    if (!is_open_) return std::nullopt;
+    
+    // Calculate the maximum page number from the known maximum block
+    PageNum max_page = block_to_page(max_known_block) + 10; // Add some buffer
+    
+    BlockNum latest_block = 0;
+    bool found = false;
+    
+    // Search from the newest page backwards for efficiency
+    for (PageNum page = max_page; page >= 0 && page <= max_page; --page) {
+        IndexRecord index_query{page, addr_slot, {}};
+        std::string index_data;
+        
+        rocksdb::Status status = db_->Get(rocksdb::ReadOptions(), index_query.to_key(), &index_data);
+        
+        if (status.ok()) {
+            // Found the key in this page, deserialize block list
+            std::vector<BlockNum> block_list = deserialize_block_list(index_data);
+            if (!block_list.empty()) {
+                // Get the latest (maximum) block number for this key
+                BlockNum page_latest = *std::max_element(block_list.begin(), block_list.end());
+                if (page_latest > latest_block) {
+                    latest_block = page_latest;
+                    found = true;
+                    // Since we're searching from newest to oldest, we can break here
+                    // because we found the most recent occurrence
+                    break;
+                }
+            }
+        } else if (!status.IsNotFound()) {
+            // Real error occurred
+            utils::log_error("Error searching index table: {}", status.ToString());
+            return std::nullopt;
+        }
+        
+        // Safety check to prevent infinite loop
+        if (page == 0) break;
+    }
+    
+    if (found) {
+        return latest_block;
+    } else {
+        utils::log_debug("Key {} not found in index table", addr_slot.substr(0, 20));
+        return std::nullopt;
+    }
 }
 
 bool IndexMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
