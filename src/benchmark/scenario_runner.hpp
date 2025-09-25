@@ -10,6 +10,9 @@ public:
 
     void run_initial_load_phase();
     void run_hotspot_update_phase();
+    
+    // Collect real RocksDB statistics
+    void collect_rocksdb_statistics();
 
 private:
     std::shared_ptr<DBManager> db_manager_;

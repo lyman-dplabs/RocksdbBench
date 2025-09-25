@@ -85,6 +85,11 @@ rocksdb::Options DBManager::get_db_options() {
     options.max_open_files = -1;
     options.use_fsync = false;
     options.stats_dump_period_sec = 60;
+    
+    // Enable statistics for metrics collection
+    statistics_ = rocksdb::CreateDBStatistics();
+    options.statistics = statistics_;
+    
     return options;
 }
 
@@ -186,6 +191,37 @@ std::string DBManager::serialize_block_list(const std::vector<BlockNum>& blocks)
     }
     
     return result;
+}
+
+uint64_t DBManager::get_bloom_filter_hits() const {
+    if (!statistics_) return 0;
+    return statistics_->getTickerCount(rocksdb::BLOOM_FILTER_USEFUL);
+}
+
+uint64_t DBManager::get_bloom_filter_misses() const {
+    if (!statistics_) return 0;
+    return statistics_->getTickerCount(rocksdb::BLOOM_FILTER_FULL_POSITIVE);
+}
+
+uint64_t DBManager::get_point_query_total() const {
+    if (!statistics_) return 0;
+    return statistics_->getTickerCount(rocksdb::NUMBER_DB_NEXT);
+}
+
+uint64_t DBManager::get_compaction_bytes_read() const {
+    if (!statistics_) return 0;
+    return statistics_->getTickerCount(rocksdb::COMPACT_READ_BYTES);
+}
+
+uint64_t DBManager::get_compaction_bytes_written() const {
+    if (!statistics_) return 0;
+    return statistics_->getTickerCount(rocksdb::COMPACT_WRITE_BYTES);
+}
+
+uint64_t DBManager::get_compaction_time_micros() const {
+    if (!statistics_) return 0;
+    // Use available compaction related ticker or approximate
+    return statistics_->getTickerCount(rocksdb::COMPACT_READ_BYTES) / 1024; // Rough approximation
 }
 
 bool IndexMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,

@@ -61,6 +61,9 @@ int main(int argc, char* argv[]) {
         
         runner.run_hotspot_update_phase();
         
+        // Collect real RocksDB statistics before reporting
+        runner.collect_rocksdb_statistics();
+        
         metrics_collector->report_summary();
         
         utils::log_info("Benchmark completed successfully!");

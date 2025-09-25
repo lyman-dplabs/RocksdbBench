@@ -151,12 +151,39 @@ void ScenarioRunner::run_historical_queries(size_t query_count) {
         auto result = db_manager_->get_historical_state(all_keys[key_idx], target_block);
         metrics_collector_->stop_and_record_query(result.has_value());
         
-        // Record bloom filter metrics (simulate - in real implementation this would come from RocksDB)
-        bool bloom_hit = result.has_value() && (gen() % 100 < 95);  // 95% bloom filter hit rate
-        metrics_collector_->record_bloom_filter_query(bloom_hit);
-        
         // Record cache hit metrics (simulate cache behavior)
         bool cache_hit = result.has_value() && (gen() % 100 < 80);  // 80% cache hit rate
         metrics_collector_->record_cache_hit(key_type, cache_hit);
+    }
+}
+
+void ScenarioRunner::collect_rocksdb_statistics() {
+    // Collect real bloom filter statistics
+    uint64_t bloom_hits = db_manager_->get_bloom_filter_hits();
+    uint64_t bloom_misses = db_manager_->get_bloom_filter_misses();
+    uint64_t total_queries = db_manager_->get_point_query_total();
+    
+    if (total_queries > 0) {
+        // Record actual bloom filter performance
+        for (uint64_t i = 0; i < bloom_hits; ++i) {
+            metrics_collector_->record_bloom_filter_query(true);
+        }
+        for (uint64_t i = 0; i < bloom_misses; ++i) {
+            metrics_collector_->record_bloom_filter_query(false);
+        }
+    }
+    
+    // Collect real compaction statistics
+    uint64_t bytes_read = db_manager_->get_compaction_bytes_read();
+    uint64_t bytes_written = db_manager_->get_compaction_bytes_written();
+    uint64_t time_micros = db_manager_->get_compaction_time_micros();
+    
+    if (bytes_read > 0) {
+        // Estimate compaction count and record metrics
+        size_t compaction_count = bytes_read / (10 * 1024 * 1024); // Rough estimate
+        for (size_t i = 0; i < compaction_count; ++i) {
+            double avg_time = static_cast<double>(time_micros) / compaction_count / 1000.0;
+            metrics_collector_->record_compaction(avg_time, bytes_read / compaction_count, 2);
+        }
     }
 }

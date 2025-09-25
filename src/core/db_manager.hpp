@@ -3,6 +3,7 @@
 #include <rocksdb/db.h>
 #include <rocksdb/merge_operator.h>
 #include <rocksdb/slice.h>
+#include <rocksdb/statistics.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -51,11 +52,22 @@ public:
     void set_merge_callback(std::function<void(size_t, size_t)> callback) {
         merge_callback_ = callback;
     }
+    
+    // Get Bloom filter statistics from RocksDB
+    uint64_t get_bloom_filter_hits() const;
+    uint64_t get_bloom_filter_misses() const;
+    uint64_t get_point_query_total() const;
+    
+    // Get compaction statistics
+    uint64_t get_compaction_bytes_read() const;
+    uint64_t get_compaction_bytes_written() const;
+    uint64_t get_compaction_time_micros() const;
 
 private:
     std::string db_path_;
     std::unique_ptr<rocksdb::DB> db_;
     std::shared_ptr<IndexMergeOperator> merge_operator_;
+    std::shared_ptr<rocksdb::Statistics> statistics_;
     std::function<void(size_t, size_t)> merge_callback_;
     bool is_open_ = false;
     
