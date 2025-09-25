@@ -59,7 +59,9 @@ void ScenarioRunner::run_initial_load_phase() {
         }
     }
     
-    utils::log_info("Initial load phase completed. Total blocks written: {}", current_block);
+    // Record the actual end block for realistic queries
+    initial_load_end_block_ = current_block;
+    utils::log_info("Initial load phase completed. Total blocks written: {}", initial_load_end_block_);
 }
 
 void ScenarioRunner::run_hotspot_update_phase() {
@@ -115,7 +117,9 @@ void ScenarioRunner::run_hotspot_update_phase() {
         }
     }
     
-    utils::log_info("Hotspot update phase completed. Total processed: {}", total_processed);
+    // Record the actual end block for realistic queries
+    hotspot_update_end_block_ = current_block;
+    utils::log_info("Hotspot update phase completed. Total processed: {}, final block: {}", total_processed, hotspot_update_end_block_);
 }
 
 void ScenarioRunner::run_historical_queries(size_t query_count) {
@@ -126,12 +130,19 @@ void ScenarioRunner::run_historical_queries(size_t query_count) {
     std::mt19937 gen(rd());
     std::uniform_int_distribution<size_t> key_dist(0, all_keys.size() - 1);
     
-    // Calculate actual block range based on written data
-    BlockNum max_init_block = 100000000 / 10000;  // ~10000 blocks from initial load
-    BlockNum max_update_block = max_init_block + (10000000 / 10000);  // +1000 blocks from updates
-    std::uniform_int_distribution<BlockNum> block_dist(0, max_update_block);
+    // Use actual block ranges from written data to ensure all keys can be found
+    BlockNum min_block = 0;
+    BlockNum max_block = std::max(initial_load_end_block_, hotspot_update_end_block_);
     
-    utils::log_debug("Query block range: 0 to {}", max_update_block);
+    // Ensure we have a valid range
+    if (max_block <= 1) {
+        max_block = initial_load_end_block_ > 0 ? initial_load_end_block_ : 10000;
+    }
+    
+    std::uniform_int_distribution<BlockNum> block_dist(min_block, max_block - 1);
+    
+    utils::log_debug("Query block range: {} to {} (initial load: {}, hotspot update: {})", 
+                    min_block, max_block - 1, initial_load_end_block_, hotspot_update_end_block_);
     
     for (size_t i = 0; i < query_count; ++i) {
         size_t key_idx = key_dist(gen);

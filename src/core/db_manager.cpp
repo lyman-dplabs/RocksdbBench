@@ -110,8 +110,8 @@ bool DBManager::write_batch(const std::vector<ChangeSetRecord>& changes,
         batch.Merge(index.to_key(), serialized);
         
         // Debug logging
-        utils::log_debug("Index merge: page {} addr_slot {} blocks {}", 
-                        index.page_num, index.addr_slot.substr(0, 20), index.block_history.size());
+        // utils::log_debug("Index merge: page {} addr_slot {} blocks {}", 
+        //                 index.page_num, index.addr_slot.substr(0, 20), index.block_history.size());
     }
     
     rocksdb::Status status = db_->Write(write_options, &batch);
@@ -157,8 +157,8 @@ std::optional<Value> DBManager::get_historical_state(const std::string& addr_slo
     status = db_->Get(rocksdb::ReadOptions(), changeset_query.to_key(), &value);
     
     if (status.ok()) {
-        utils::log_debug("Found value for block {} (target: {}) addr_slot {}", 
-                        closest_block, target_block_num, addr_slot.substr(0, 20));
+        // utils::log_debug("Found value for block {} (target: {}) addr_slot {}", 
+        //                 closest_block, target_block_num, addr_slot.substr(0, 20));
         return value;
     } else {
         utils::log_debug("Value not found for block {} addr_slot {}", closest_block, addr_slot.substr(0, 20));

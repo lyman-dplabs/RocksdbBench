@@ -19,5 +19,9 @@ private:
     std::shared_ptr<MetricsCollector> metrics_collector_;
     DataGenerator data_generator_;
     
+    // Track actual block ranges for realistic queries
+    BlockNum initial_load_end_block_ = 0;
+    BlockNum hotspot_update_end_block_ = 0;
+    
     void run_historical_queries(size_t query_count);
 };
