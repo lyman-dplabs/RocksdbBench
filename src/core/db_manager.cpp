@@ -99,9 +99,16 @@ bool DBManager::write_batch(const std::vector<ChangeSetRecord>& changes,
     for (const auto& index : indices) {
         std::string serialized = serialize_block_list(index.block_history);
         batch.Merge(index.to_key(), serialized);
+        
+        // Debug logging
+        utils::log_debug("Index merge: page {} addr_slot {} blocks {}", 
+                        index.page_num, index.addr_slot.substr(0, 20), index.block_history.size());
     }
     
     rocksdb::Status status = db_->Write(write_options, &batch);
+    if (!status.ok()) {
+        utils::log_error("Write batch failed: {}", status.ToString());
+    }
     return status.ok();
 }
 
@@ -115,12 +122,24 @@ std::optional<Value> DBManager::get_historical_state(const std::string& addr_slo
     std::string index_data;
     rocksdb::Status status = db_->Get(rocksdb::ReadOptions(), index_query.to_key(), &index_data);
     
-    if (!status.ok()) return std::nullopt;
+    if (!status.ok()) {
+        utils::log_debug("Index not found for page {} addr_slot {}", target_page, addr_slot.substr(0, 20));
+        return std::nullopt;
+    }
     
     std::vector<BlockNum> block_list = deserialize_block_list(index_data);
     
+    if (block_list.empty()) {
+        utils::log_debug("Empty block list for page {} addr_slot {}", target_page, addr_slot.substr(0, 20));
+        return std::nullopt;
+    }
+    
     auto it = std::upper_bound(block_list.begin(), block_list.end(), target_block_num);
-    if (it == block_list.begin()) return std::nullopt;
+    if (it == block_list.begin()) {
+        utils::log_debug("No block found <= {} for addr_slot {}. Available blocks: {}", 
+                        target_block_num, addr_slot.substr(0, 20), block_list.size());
+        return std::nullopt;
+    }
     
     BlockNum closest_block = *(--it);
     ChangeSetRecord changeset_query{closest_block, addr_slot, ""};
@@ -128,8 +147,14 @@ std::optional<Value> DBManager::get_historical_state(const std::string& addr_slo
     std::string value;
     status = db_->Get(rocksdb::ReadOptions(), changeset_query.to_key(), &value);
     
-    if (status.ok()) return value;
-    return std::nullopt;
+    if (status.ok()) {
+        utils::log_debug("Found value for block {} (target: {}) addr_slot {}", 
+                        closest_block, target_block_num, addr_slot.substr(0, 20));
+        return value;
+    } else {
+        utils::log_debug("Value not found for block {} addr_slot {}", closest_block, addr_slot.substr(0, 20));
+        return std::nullopt;
+    }
 }
 
 std::vector<BlockNum> DBManager::deserialize_block_list(const std::string& data) {
@@ -165,19 +190,19 @@ bool IndexMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
     
     if (merge_in.existing_value) {
         std::string existing_str(merge_in.existing_value->data(), merge_in.existing_value->size());
-        result = deserialize_block_list(existing_str);
+        result = merge_deserialize_block_list(existing_str);
     }
     
     for (const auto& operand : merge_in.operand_list) {
         std::string operand_str(operand.data(), operand.size());
-        std::vector<BlockNum> operand_blocks = deserialize_block_list(operand_str);
+        std::vector<BlockNum> operand_blocks = merge_deserialize_block_list(operand_str);
         result.insert(result.end(), operand_blocks.begin(), operand_blocks.end());
     }
     
     std::sort(result.begin(), result.end());
     result.erase(std::unique(result.begin(), result.end()), result.end());
     
-    merge_out->new_value = serialize_block_list(result);
+    merge_out->new_value = merge_serialize_block_list(result);
     return true;
 }
 
@@ -189,18 +214,18 @@ bool IndexMergeOperator::PartialMergeMulti(const rocksdb::Slice& key,
     
     for (const auto& operand : operand_list) {
         std::string operand_str(operand.data(), operand.size());
-        std::vector<BlockNum> operand_blocks = deserialize_block_list(operand_str);
+        std::vector<BlockNum> operand_blocks = merge_deserialize_block_list(operand_str);
         result.insert(result.end(), operand_blocks.begin(), operand_blocks.end());
     }
     
     std::sort(result.begin(), result.end());
     result.erase(std::unique(result.begin(), result.end()), result.end());
     
-    *new_value = serialize_block_list(result);
+    *new_value = merge_serialize_block_list(result);
     return true;
 }
 
-std::vector<BlockNum> IndexMergeOperator::deserialize_block_list(const std::string& data) {
+std::vector<BlockNum> IndexMergeOperator::merge_deserialize_block_list(const std::string& data) {
     std::vector<BlockNum> result;
     if (data.size() % sizeof(BlockNum) != 0) return result;
     
@@ -216,7 +241,7 @@ std::vector<BlockNum> IndexMergeOperator::deserialize_block_list(const std::stri
     return result;
 }
 
-std::string IndexMergeOperator::serialize_block_list(const std::vector<BlockNum>& blocks) {
+std::string IndexMergeOperator::merge_serialize_block_list(const std::vector<BlockNum>& blocks) {
     std::string result;
     result.resize(blocks.size() * sizeof(BlockNum));
     

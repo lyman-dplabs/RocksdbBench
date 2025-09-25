@@ -119,7 +119,13 @@ void ScenarioRunner::run_historical_queries(size_t query_count) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<size_t> key_dist(0, all_keys.size() - 1);
-    std::uniform_int_distribution<BlockNum> block_dist(0, 150000);
+    
+    // Calculate actual block range based on written data
+    BlockNum max_init_block = 100000000 / 10000;  // ~10000 blocks from initial load
+    BlockNum max_update_block = max_init_block + (10000000 / 10000);  // +1000 blocks from updates
+    std::uniform_int_distribution<BlockNum> block_dist(0, max_update_block);
+    
+    utils::log_debug("Query block range: 0 to {}", max_update_block);
     
     for (size_t i = 0; i < query_count; ++i) {
         size_t key_idx = key_dist(gen);

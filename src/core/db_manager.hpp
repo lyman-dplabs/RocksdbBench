@@ -23,8 +23,8 @@ public:
     }
     
 private:
-    static std::vector<BlockNum> deserialize_block_list(const std::string& data);
-    static std::string serialize_block_list(const std::vector<BlockNum>& blocks);
+    static std::vector<BlockNum> merge_deserialize_block_list(const std::string& data);
+    static std::string merge_serialize_block_list(const std::vector<BlockNum>& blocks);
 };
 
 class DBManager {
