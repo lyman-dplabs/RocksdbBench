@@ -34,5 +34,10 @@ private:
     };
     std::vector<KeyBlockInfo> initial_load_key_blocks_;
     
+    // Pre-classified key indices for efficient weighted selection
+    std::vector<size_t> hot_key_indices_;
+    std::vector<size_t> medium_key_indices_;
+    std::vector<size_t> tail_key_indices_;
+    
     void run_historical_queries(size_t query_count);
 };

@@ -24,6 +24,19 @@ void ScenarioRunner::run_initial_load_phase() {
     initial_load_key_blocks_.clear();
     initial_load_key_blocks_.reserve(total_keys);
     
+    // Pre-classify key-block pair indices for efficient weighted selection
+    hot_key_indices_.clear();
+    medium_key_indices_.clear();
+    tail_key_indices_.clear();
+    
+    const size_t hot_key_count = 10000000;      // 10M hot keys
+    const size_t medium_key_count = 20000000;   // 20M medium keys  
+    const size_t tail_key_count = 70000000;     // 70M tail keys
+    
+    hot_key_indices_.reserve(hot_key_count);
+    medium_key_indices_.reserve(medium_key_count);
+    tail_key_indices_.reserve(tail_key_count);
+    
     for (size_t i = 0; i < total_keys; i += batch_size) {
         size_t end_idx = std::min(i + batch_size, total_keys);
         size_t current_batch_size = end_idx - i;
@@ -45,7 +58,17 @@ void ScenarioRunner::run_initial_load_phase() {
             indices.push_back(index);
             
             // Track key-block pair for efficient historical queries
+            size_t pair_idx = initial_load_key_blocks_.size();
             initial_load_key_blocks_.push_back({key_idx, current_block, all_keys[key_idx]});
+            
+            // Classify the key-block pair by key type
+            if (key_idx < hot_key_count) {
+                hot_key_indices_.push_back(pair_idx);
+            } else if (key_idx < hot_key_count + medium_key_count) {
+                medium_key_indices_.push_back(pair_idx);
+            } else {
+                tail_key_indices_.push_back(pair_idx);
+            }
         }
         
         metrics_collector_->start_write_timer();
@@ -141,28 +164,55 @@ void ScenarioRunner::run_historical_queries(size_t query_count) {
     std::random_device rd;
     std::mt19937 gen(rd());
     
-    // Use pre-built key-block pairs for efficient querying
-    std::uniform_int_distribution<size_t> pair_dist(0, initial_load_key_blocks_.size() - 1);
+    // Weighted distribution: 1:2:7 (hot:medium:tail)
+    std::discrete_distribution<int> type_dist({1, 2, 7}); // hot, medium, tail
+    std::uniform_int_distribution<size_t> hot_dist(0, hot_key_indices_.size() - 1);
+    std::uniform_int_distribution<size_t> medium_dist(0, medium_key_indices_.size() - 1);
+    std::uniform_int_distribution<size_t> tail_dist(0, tail_key_indices_.size() - 1);
     
-    utils::log_debug("Using {} pre-built key-block pairs for historical queries", initial_load_key_blocks_.size());
+    utils::log_debug("Using {} pre-built key-block pairs for historical queries (hot:{}, medium:{}, tail:{})", 
+                    initial_load_key_blocks_.size(), hot_key_indices_.size(), medium_key_indices_.size(), tail_key_indices_.size());
     
     for (size_t i = 0; i < query_count; ++i) {
-        // Randomly select a key-block pair that was actually written during initial load
-        size_t pair_idx = pair_dist(gen);
+        // Select key type based on 1:2:7 ratio
+        int key_type = type_dist(gen);
+        size_t pair_idx;
+        
+        switch (key_type) {
+            case 0: // hot keys
+                pair_idx = hot_key_indices_[hot_dist(gen)];
+                break;
+            case 1: // medium keys
+                pair_idx = medium_key_indices_[medium_dist(gen)];
+                break;
+            case 2: // tail keys
+                pair_idx = tail_key_indices_[tail_dist(gen)];
+                break;
+            default:
+                pair_idx = hot_key_indices_[hot_dist(gen)]; // fallback
+        }
+        
+        // Get the corresponding key-block pair
         const auto& pair = initial_load_key_blocks_[pair_idx];
         
         // Use the actual key and block that were written together
         const std::string& key = pair.key;
         BlockNum target_block = pair.block_num;
         
-        // Determine key type for cache hit analysis
-        std::string key_type;
-        if (pair.key_idx < 10000000) {  // Hot keys: first 10M
-            key_type = "hot";
-        } else if (pair.key_idx < 30000000) {  // Medium keys: next 20M
-            key_type = "medium";
-        } else {  // Tail keys: remaining 70M
-            key_type = "tail";
+        // Determine key type for cache hit analysis based on selection
+        std::string key_type_str;
+        switch (key_type) {
+            case 0: // hot keys
+                key_type_str = "hot";
+                break;
+            case 1: // medium keys
+                key_type_str = "medium";
+                break;
+            case 2: // tail keys
+                key_type_str = "tail";
+                break;
+            default:
+                key_type_str = "hot"; // fallback
         }
         
         metrics_collector_->start_query_timer();
@@ -171,7 +221,7 @@ void ScenarioRunner::run_historical_queries(size_t query_count) {
         
         // Record cache hit metrics (simulate cache behavior)
         bool cache_hit = result.has_value() && (gen() % 100 < 80);  // 80% cache hit rate
-        metrics_collector_->record_cache_hit(key_type, cache_hit);
+        metrics_collector_->record_cache_hit(key_type_str, cache_hit);
     }
 }
 
