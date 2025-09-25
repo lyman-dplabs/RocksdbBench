@@ -8,7 +8,11 @@
 #include "../utils/logger.hpp"
 
 DBManager::DBManager(const std::string& db_path) 
-    : db_path_(db_path), merge_operator_(std::make_shared<IndexMergeOperator>()) {}
+    : db_path_(db_path), merge_operator_(std::make_shared<IndexMergeOperator>([this](size_t merged_values, size_t merged_value_size) {
+        if (merge_callback_) {
+            merge_callback_(merged_values, merged_value_size);
+        }
+    })) {}
 
 DBManager::~DBManager() {
     close();
@@ -187,22 +191,31 @@ std::string DBManager::serialize_block_list(const std::vector<BlockNum>& blocks)
 bool IndexMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
                                     MergeOperationOutput* merge_out) const {
     std::vector<BlockNum> result;
+    size_t total_merged_values = 0;
     
     if (merge_in.existing_value) {
         std::string existing_str(merge_in.existing_value->data(), merge_in.existing_value->size());
         result = merge_deserialize_block_list(existing_str);
+        total_merged_values += result.size();
     }
     
     for (const auto& operand : merge_in.operand_list) {
         std::string operand_str(operand.data(), operand.size());
         std::vector<BlockNum> operand_blocks = merge_deserialize_block_list(operand_str);
         result.insert(result.end(), operand_blocks.begin(), operand_blocks.end());
+        total_merged_values += operand_blocks.size();
     }
     
     std::sort(result.begin(), result.end());
     result.erase(std::unique(result.begin(), result.end()), result.end());
     
     merge_out->new_value = merge_serialize_block_list(result);
+    
+    // Record merge metrics
+    if (merge_callback_ && !merge_in.operand_list.empty()) {
+        merge_callback_(total_merged_values, merge_out->new_value.size());
+    }
+    
     return true;
 }
 
@@ -211,17 +224,25 @@ bool IndexMergeOperator::PartialMergeMulti(const rocksdb::Slice& key,
                                         std::string* new_value,
                                         rocksdb::Logger* logger) const {
     std::vector<BlockNum> result;
+    size_t total_merged_values = 0;
     
     for (const auto& operand : operand_list) {
         std::string operand_str(operand.data(), operand.size());
         std::vector<BlockNum> operand_blocks = merge_deserialize_block_list(operand_str);
         result.insert(result.end(), operand_blocks.begin(), operand_blocks.end());
+        total_merged_values += operand_blocks.size();
     }
     
     std::sort(result.begin(), result.end());
     result.erase(std::unique(result.begin(), result.end()), result.end());
     
     *new_value = merge_serialize_block_list(result);
+    
+    // Record merge metrics
+    if (merge_callback_ && !operand_list.empty()) {
+        merge_callback_(total_merged_values, new_value->size());
+    }
+    
     return true;
 }
 

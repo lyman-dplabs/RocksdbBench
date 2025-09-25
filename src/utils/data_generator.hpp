@@ -21,13 +21,13 @@ public:
     std::vector<size_t> generate_hotspot_update_indices(size_t batch_size);
     std::string generate_random_value();
     std::vector<std::string> generate_random_values(size_t count);
+    void generate_initial_keys_parallel();
     
 private:
     Config config_;
     std::mt19937 rng_;
     std::vector<std::string> all_keys_;
     
-    void generate_initial_keys_parallel();
     std::string generate_address();
     std::string generate_slot();
     std::string create_addr_slot(const std::string& addr, const std::string& slot);
