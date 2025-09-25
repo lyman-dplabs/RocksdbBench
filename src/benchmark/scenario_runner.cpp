@@ -20,6 +20,10 @@ void ScenarioRunner::run_initial_load_phase() {
     size_t total_keys = all_keys.size();
     BlockNum current_block = 0;
     
+    // Clear and prepare to track written keys
+    initial_load_keys_.clear();
+    initial_load_keys_.reserve(total_keys);
+    
     for (size_t i = 0; i < total_keys; i += batch_size) {
         size_t end_idx = std::min(i + batch_size, total_keys);
         size_t current_batch_size = end_idx - i;
@@ -39,6 +43,9 @@ void ScenarioRunner::run_initial_load_phase() {
             PageNum page = block_to_page(current_block);
             IndexRecord index{page, all_keys[key_idx], {current_block}};
             indices.push_back(index);
+            
+            // Track this key for historical queries
+            initial_load_keys_.push_back(all_keys[key_idx]);
         }
         
         metrics_collector_->start_write_timer();
@@ -125,28 +132,29 @@ void ScenarioRunner::run_hotspot_update_phase() {
 void ScenarioRunner::run_historical_queries(size_t query_count) {
     utils::log_info("Running {} historical queries...", query_count);
     
-    const auto& all_keys = data_generator_.get_all_keys();
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<size_t> key_dist(0, all_keys.size() - 1);
-    
-    // Use actual block ranges from written data to ensure all keys can be found
-    BlockNum min_block = 0;
-    BlockNum max_block = std::max(initial_load_end_block_, hotspot_update_end_block_);
-    
-    // Ensure we have a valid range
-    if (max_block <= 1) {
-        max_block = initial_load_end_block_ > 0 ? initial_load_end_block_ : 10000;
+    if (initial_load_keys_.empty()) {
+        utils::log_error("No initial load keys available for historical queries");
+        return;
     }
     
-    std::uniform_int_distribution<BlockNum> block_dist(min_block, max_block - 1);
+    std::random_device rd;
+    std::mt19937 gen(rd());
     
-    utils::log_debug("Query block range: {} to {} (initial load: {}, hotspot update: {})", 
-                    min_block, max_block - 1, initial_load_end_block_, hotspot_update_end_block_);
+    // Only query keys that were actually written in initial load phase
+    std::uniform_int_distribution<size_t> key_dist(0, initial_load_keys_.size() - 1);
+    
+    // Only query blocks that were actually written in initial load phase
+    std::uniform_int_distribution<BlockNum> block_dist(0, initial_load_end_block_ - 1);
+    
+    utils::log_debug("Querying {} initial load keys in block range: 0 to {}", 
+                    initial_load_keys_.size(), initial_load_end_block_ - 1);
     
     for (size_t i = 0; i < query_count; ++i) {
         size_t key_idx = key_dist(gen);
         BlockNum target_block = block_dist(gen);
+        
+        // Use the actual key that was written
+        const std::string& key = initial_load_keys_[key_idx];
         
         // Determine key type for cache hit analysis
         std::string key_type;
@@ -159,7 +167,7 @@ void ScenarioRunner::run_historical_queries(size_t query_count) {
         }
         
         metrics_collector_->start_query_timer();
-        auto result = db_manager_->get_historical_state(all_keys[key_idx], target_block);
+        auto result = db_manager_->get_historical_state(key, target_block);
         metrics_collector_->stop_and_record_query(result.has_value());
         
         // Record cache hit metrics (simulate cache behavior)
