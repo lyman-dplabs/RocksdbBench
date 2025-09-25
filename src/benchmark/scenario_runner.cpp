@@ -20,9 +20,9 @@ void ScenarioRunner::run_initial_load_phase() {
     size_t total_keys = all_keys.size();
     BlockNum current_block = 0;
     
-    // Clear and prepare to track written keys
-    initial_load_keys_.clear();
-    initial_load_keys_.reserve(total_keys);
+    // Clear and prepare to track written keys and key-block pairs
+    initial_load_key_blocks_.clear();
+    initial_load_key_blocks_.reserve(total_keys);
     
     for (size_t i = 0; i < total_keys; i += batch_size) {
         size_t end_idx = std::min(i + batch_size, total_keys);
@@ -44,8 +44,8 @@ void ScenarioRunner::run_initial_load_phase() {
             IndexRecord index{page, all_keys[key_idx], {current_block}};
             indices.push_back(index);
             
-            // Track this key for historical queries
-            initial_load_keys_.push_back(all_keys[key_idx]);
+            // Track key-block pair for efficient historical queries
+            initial_load_key_blocks_.push_back({key_idx, current_block, all_keys[key_idx]});
         }
         
         metrics_collector_->start_write_timer();
@@ -68,7 +68,8 @@ void ScenarioRunner::run_initial_load_phase() {
     
     // Record the actual end block for realistic queries
     initial_load_end_block_ = current_block;
-    utils::log_info("Initial load phase completed. Total blocks written: {}", initial_load_end_block_);
+    utils::log_info("Initial load phase completed. Total blocks written: {}, key-block pairs tracked: {}", 
+                   initial_load_end_block_, initial_load_key_blocks_.size());
 }
 
 void ScenarioRunner::run_hotspot_update_phase() {
@@ -132,35 +133,33 @@ void ScenarioRunner::run_hotspot_update_phase() {
 void ScenarioRunner::run_historical_queries(size_t query_count) {
     utils::log_info("Running {} historical queries...", query_count);
     
-    if (initial_load_keys_.empty()) {
-        utils::log_error("No initial load keys available for historical queries");
+    if (initial_load_key_blocks_.empty()) {
+        utils::log_error("No initial load key-block pairs available for historical queries");
         return;
     }
     
     std::random_device rd;
     std::mt19937 gen(rd());
     
-    // Only query keys that were actually written in initial load phase
-    std::uniform_int_distribution<size_t> key_dist(0, initial_load_keys_.size() - 1);
+    // Use pre-built key-block pairs for efficient querying
+    std::uniform_int_distribution<size_t> pair_dist(0, initial_load_key_blocks_.size() - 1);
     
-    // Only query blocks that were actually written in initial load phase
-    std::uniform_int_distribution<BlockNum> block_dist(0, initial_load_end_block_ - 1);
-    
-    utils::log_debug("Querying {} initial load keys in block range: 0 to {}", 
-                    initial_load_keys_.size(), initial_load_end_block_ - 1);
+    utils::log_debug("Using {} pre-built key-block pairs for historical queries", initial_load_key_blocks_.size());
     
     for (size_t i = 0; i < query_count; ++i) {
-        size_t key_idx = key_dist(gen);
-        BlockNum target_block = block_dist(gen);
+        // Randomly select a key-block pair that was actually written during initial load
+        size_t pair_idx = pair_dist(gen);
+        const auto& pair = initial_load_key_blocks_[pair_idx];
         
-        // Use the actual key that was written
-        const std::string& key = initial_load_keys_[key_idx];
+        // Use the actual key and block that were written together
+        const std::string& key = pair.key;
+        BlockNum target_block = pair.block_num;
         
         // Determine key type for cache hit analysis
         std::string key_type;
-        if (key_idx < 10000000) {  // Hot keys: first 10M
+        if (pair.key_idx < 10000000) {  // Hot keys: first 10M
             key_type = "hot";
-        } else if (key_idx < 30000000) {  // Medium keys: next 20M
+        } else if (pair.key_idx < 30000000) {  // Medium keys: next 20M
             key_type = "medium";
         } else {  // Tail keys: remaining 70M
             key_type = "tail";

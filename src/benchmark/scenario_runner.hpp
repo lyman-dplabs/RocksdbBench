@@ -14,6 +14,9 @@ public:
     // Collect real RocksDB statistics
     void collect_rocksdb_statistics();
 
+    // Test helper method
+    void run_historical_queries_test(size_t query_count) { run_historical_queries(query_count); }
+
 private:
     std::shared_ptr<DBManager> db_manager_;
     std::shared_ptr<MetricsCollector> metrics_collector_;
@@ -23,8 +26,13 @@ private:
     BlockNum initial_load_end_block_ = 0;
     BlockNum hotspot_update_end_block_ = 0;
     
-    // Store the keys that were actually written in initial load phase
-    std::vector<std::string> initial_load_keys_;
+    // Track key-block pairs written during initial load to avoid reconstruction
+    struct KeyBlockInfo {
+        size_t key_idx;
+        BlockNum block_num;
+        std::string key;
+    };
+    std::vector<KeyBlockInfo> initial_load_key_blocks_;
     
     void run_historical_queries(size_t query_count);
 };
