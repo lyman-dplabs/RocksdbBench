@@ -24,19 +24,6 @@ void ScenarioRunner::run_initial_load_phase() {
     initial_load_key_blocks_.clear();
     initial_load_key_blocks_.reserve(total_keys);
     
-    // Pre-classify key-block pair indices for efficient weighted selection
-    hot_key_indices_.clear();
-    medium_key_indices_.clear();
-    tail_key_indices_.clear();
-    
-    const size_t hot_key_count = 10000000;      // 10M hot keys
-    const size_t medium_key_count = 20000000;   // 20M medium keys  
-    const size_t tail_key_count = 70000000;     // 70M tail keys
-    
-    hot_key_indices_.reserve(hot_key_count);
-    medium_key_indices_.reserve(medium_key_count);
-    tail_key_indices_.reserve(tail_key_count);
-    
     for (size_t i = 0; i < total_keys; i += batch_size) {
         size_t end_idx = std::min(i + batch_size, total_keys);
         size_t current_batch_size = end_idx - i;
@@ -58,17 +45,7 @@ void ScenarioRunner::run_initial_load_phase() {
             indices.push_back(index);
             
             // Track key-block pair for efficient historical queries
-            size_t pair_idx = initial_load_key_blocks_.size();
             initial_load_key_blocks_.push_back({key_idx, current_block, all_keys[key_idx]});
-            
-            // Classify the key-block pair by key type
-            if (key_idx < hot_key_count) {
-                hot_key_indices_.push_back(pair_idx);
-            } else if (key_idx < hot_key_count + medium_key_count) {
-                medium_key_indices_.push_back(pair_idx);
-            } else {
-                tail_key_indices_.push_back(pair_idx);
-            }
         }
         
         metrics_collector_->start_write_timer();
@@ -164,36 +141,41 @@ void ScenarioRunner::run_historical_queries(size_t query_count) {
     std::random_device rd;
     std::mt19937 gen(rd());
     
+    // Define key type ranges based on 1:2:7 ratio (hot:medium:tail)
+    const size_t hot_key_count = 10000000;      // 10M hot keys (0 to 9,999,999)
+    const size_t medium_key_count = 20000000;   // 20M medium keys (10M to 29,999,999)
+    const size_t tail_key_count = 70000000;     // 70M tail keys (30M to 99,999,999)
+    
     // Weighted distribution: 1:2:7 (hot:medium:tail)
     std::discrete_distribution<int> type_dist({1, 2, 7}); // hot, medium, tail
-    std::uniform_int_distribution<size_t> hot_dist(0, hot_key_indices_.size() - 1);
-    std::uniform_int_distribution<size_t> medium_dist(0, medium_key_indices_.size() - 1);
-    std::uniform_int_distribution<size_t> tail_dist(0, tail_key_indices_.size() - 1);
+    std::uniform_int_distribution<size_t> hot_dist(0, hot_key_count - 1);
+    std::uniform_int_distribution<size_t> medium_dist(hot_key_count, hot_key_count + medium_key_count - 1);
+    std::uniform_int_distribution<size_t> tail_dist(hot_key_count + medium_key_count, 
+                                                   hot_key_count + medium_key_count + tail_key_count - 1);
     
-    utils::log_debug("Using {} pre-built key-block pairs for historical queries (hot:{}, medium:{}, tail:{})", 
-                    initial_load_key_blocks_.size(), hot_key_indices_.size(), medium_key_indices_.size(), tail_key_indices_.size());
+    utils::log_debug("Using {} pre-built key-block pairs for historical queries", initial_load_key_blocks_.size());
     
     for (size_t i = 0; i < query_count; ++i) {
         // Select key type based on 1:2:7 ratio
         int key_type = type_dist(gen);
-        size_t pair_idx;
+        size_t key_idx;
         
         switch (key_type) {
-            case 0: // hot keys
-                pair_idx = hot_key_indices_[hot_dist(gen)];
+            case 0: // hot keys (0 to 9,999,999)
+                key_idx = hot_dist(gen);
                 break;
-            case 1: // medium keys
-                pair_idx = medium_key_indices_[medium_dist(gen)];
+            case 1: // medium keys (10M to 29,999,999)
+                key_idx = medium_dist(gen);
                 break;
-            case 2: // tail keys
-                pair_idx = tail_key_indices_[tail_dist(gen)];
+            case 2: // tail keys (30M to 99,999,999)
+                key_idx = tail_dist(gen);
                 break;
             default:
-                pair_idx = hot_key_indices_[hot_dist(gen)]; // fallback
+                key_idx = hot_dist(gen); // fallback
         }
         
-        // Get the corresponding key-block pair
-        const auto& pair = initial_load_key_blocks_[pair_idx];
+        // Get the corresponding key-block pair (key_idx directly maps to pair index)
+        const auto& pair = initial_load_key_blocks_[key_idx];
         
         // Use the actual key and block that were written together
         const std::string& key = pair.key;
@@ -226,10 +208,16 @@ void ScenarioRunner::run_historical_queries(size_t query_count) {
 }
 
 void ScenarioRunner::collect_rocksdb_statistics() {
+    // Debug: Print bloom filter statistics
+    db_manager_->debug_bloom_filter_stats();
+    
     // Collect real bloom filter statistics
     uint64_t bloom_hits = db_manager_->get_bloom_filter_hits();
     uint64_t bloom_misses = db_manager_->get_bloom_filter_misses();
     uint64_t total_queries = db_manager_->get_point_query_total();
+    
+    utils::log_info("Bloom Filter Summary: hits={}, misses={}, total_queries={}", 
+                   bloom_hits, bloom_misses, total_queries);
     
     if (total_queries > 0) {
         // Record actual bloom filter performance
@@ -239,12 +227,19 @@ void ScenarioRunner::collect_rocksdb_statistics() {
         for (uint64_t i = 0; i < bloom_misses; ++i) {
             metrics_collector_->record_bloom_filter_query(false);
         }
+        
+        double false_positive_rate = total_queries > 0 ? 
+            (static_cast<double>(bloom_misses) / total_queries) * 100.0 : 0.0;
+        utils::log_info("Bloom Filter False Positive Rate: {:.2f}%", false_positive_rate);
     }
     
     // Collect real compaction statistics
     uint64_t bytes_read = db_manager_->get_compaction_bytes_read();
     uint64_t bytes_written = db_manager_->get_compaction_bytes_written();
     uint64_t time_micros = db_manager_->get_compaction_time_micros();
+    
+    utils::log_info("Compaction Summary: bytes_read={}, bytes_written={}, time_micros={}", 
+                   bytes_read, bytes_written, time_micros);
     
     if (bytes_read > 0) {
         // Estimate compaction count and record metrics
