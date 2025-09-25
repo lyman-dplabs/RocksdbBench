@@ -23,4 +23,11 @@ void log_debug(fmt::format_string<Args...> fmt_str, Args&&... args) {
     fmt::print("\n");
 }
 
+template<typename... Args>
+void log_warn(fmt::format_string<Args...> fmt_str, Args&&... args) {
+    fmt::print(stderr, "[WARN] ");
+    fmt::print(stderr, fmt_str, std::forward<Args>(args)...);
+    fmt::print(stderr, "\n");
+}
+
 }

@@ -1,5 +1,6 @@
-#include "core/db_manager.hpp"
-#include "benchmark/scenario_runner.hpp"
+#include "core/config.hpp"
+#include "core/strategy_db_manager.hpp"
+#include "benchmark/strategy_scenario_runner.hpp"
 #include "benchmark/metrics_collector.hpp"
 #include "utils/logger.hpp"
 #include <iostream>
@@ -28,32 +29,37 @@ bool handle_existing_data(const std::string& db_path) {
 int main(int argc, char* argv[]) {
     utils::log_info("RocksDB Benchmark Tool Starting...");
     
-    std::string db_path = "./rocksdb_data";
-    
-    if (argc > 1) {
-        db_path = argv[1];
-    }
-    
     try {
-        auto db_manager = std::make_shared<DBManager>(db_path);
+        // Parse configuration from command line arguments
+        auto config = BenchmarkConfig::from_args(argc, argv);
+        config.print_config();
+        
+        // Create the storage strategy based on configuration
+        auto strategy = StorageStrategyFactory::create_strategy(config.storage_strategy);
+        
+        auto db_manager = std::make_shared<StrategyDBManager>(config.db_path, std::move(strategy));
         auto metrics_collector = std::make_shared<MetricsCollector>();
         
-        bool should_clean = false;
-        if (db_manager->data_exists()) {
-            should_clean = handle_existing_data(db_path);
+        // Configure bloom filter based on configuration
+        db_manager->set_bloom_filter_enabled(config.enable_bloom_filter);
+        
+        bool should_clean = config.clean_existing_data;
+        if (!should_clean && db_manager->data_exists()) {
+            should_clean = handle_existing_data(config.db_path);
             if (!should_clean) {
                 return 0;
             }
         }
         
         if (!db_manager->open(should_clean)) {
-            utils::log_error("Failed to open database at path: {}", db_path);
+            utils::log_error("Failed to open database at path: {}", config.db_path);
             return 1;
         }
         
-        utils::log_info("Database opened successfully at: {}", db_path);
+        utils::log_info("Database opened successfully at: {} with strategy: {}", 
+                       config.db_path, config.storage_strategy);
         
-        ScenarioRunner runner(db_manager, metrics_collector);
+        StrategyScenarioRunner runner(db_manager, metrics_collector);
         
         utils::log_info("Starting benchmark...");
         
@@ -68,6 +74,10 @@ int main(int argc, char* argv[]) {
         
         utils::log_info("Benchmark completed successfully!");
         
+    } catch (const ConfigError& e) {
+        utils::log_error("Configuration error: {}", e.what());
+        BenchmarkConfig::print_help(argv[0]);
+        return 1;
     } catch (const std::exception& e) {
         utils::log_error("Benchmark failed with exception: {}", e.what());
         return 1;
