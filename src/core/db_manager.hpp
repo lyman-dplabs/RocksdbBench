@@ -62,6 +62,9 @@ public:
     uint64_t get_compaction_bytes_read() const;
     uint64_t get_compaction_bytes_written() const;
     uint64_t get_compaction_time_micros() const;
+    
+    // Debug function to check bloom filter statistics
+    void debug_bloom_filter_stats() const;
 
 private:
     std::string db_path_;
