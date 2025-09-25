@@ -86,9 +86,15 @@ rocksdb::Options DBManager::get_db_options() {
     options.use_fsync = false;
     options.stats_dump_period_sec = 60;
     
+    // Enable Bloom Filter for better performance and metrics
+    options.optimize_filters_for_hits = true;
+    options.level_compaction_dynamic_level_bytes = true;
+    
     // Enable statistics for metrics collection
     statistics_ = rocksdb::CreateDBStatistics();
     options.statistics = statistics_;
+    
+    utils::log_info("Bloom Filter optimizations enabled for RocksDB");
     
     return options;
 }
@@ -205,7 +211,12 @@ uint64_t DBManager::get_bloom_filter_misses() const {
 
 uint64_t DBManager::get_point_query_total() const {
     if (!statistics_) return 0;
-    return statistics_->getTickerCount(rocksdb::NUMBER_DB_NEXT);
+    // Try different ticker types to find one that works
+    uint64_t total = statistics_->getTickerCount(rocksdb::NUMBER_DB_NEXT);
+    if (total == 0) {
+        total = statistics_->getTickerCount(rocksdb::NUMBER_KEYS_READ);
+    }
+    return total;
 }
 
 uint64_t DBManager::get_compaction_bytes_read() const {
