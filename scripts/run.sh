@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
             echo "  --db-path PATH              Database path (default: ./rocksdb_data)"
-            echo "  --strategy STRATEGY          Storage strategy to use (page_index|direct_version, default: page_index)"
+            echo "  --strategy STRATEGY          Storage strategy to use (page_index|direct_version|dual_rocksdb_adaptive, default: page_index)"
             echo "  --clean                     Clean existing data before starting"
             echo "  --initial-records N         Number of initial records"
             echo "  --hotspot-updates N         Number of hotspot updates"
@@ -44,7 +44,8 @@ while [[ $# -gt 0 ]]; do
             echo "Examples:"
             echo "  $0                                    # Use page_index strategy with default settings"
             echo "  $0 --strategy direct_version         # Use direct_version strategy"
-            echo "  $0 --strategy direct_version --clean # Use direct_version and clean data"
+            echo "  $0 --strategy dual_rocksdb_adaptive   # Use dual_rocksdb_adaptive strategy (NEW)"
+            echo "  $0 --strategy dual_rocksdb_adaptive --clean # Use new strategy and clean data"
             echo "  $0 --initial-records 50000000        # Custom initial records count"
             exit 0
             ;;
@@ -63,8 +64,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate strategy
-if [[ "$STRATEGY" != "page_index" && "$STRATEGY" != "direct_version" ]]; then
-    echo "Error: Invalid strategy '$STRATEGY'. Must be 'page_index' or 'direct_version'"
+if [[ "$STRATEGY" != "page_index" && "$STRATEGY" != "direct_version" && "$STRATEGY" != "dual_rocksdb_adaptive" ]]; then
+    echo "Error: Invalid strategy '$STRATEGY'. Must be 'page_index', 'direct_version', or 'dual_rocksdb_adaptive'"
     exit 1
 fi
 
@@ -81,7 +82,7 @@ fi
 echo "======================================="
 
 # Check if executable exists
-if [ ! -f "./build/src/rocksdb_bench_app" ]; then
+if [ ! -f "./build/rocksdb_bench_app" ]; then
     echo "Error: Executable not found. Please run ./scripts/build.sh first."
     exit 1
 fi
@@ -102,4 +103,5 @@ if [[ -n "$HOTSPOT_UPDATES" ]]; then
 fi
 
 echo "Starting benchmark..."
-./build/src/rocksdb_bench_app $CMD_ARGS
+echo "Command: ./build/rocksdb_bench_app $CMD_ARGS"
+./build/rocksdb_bench_app $CMD_ARGS

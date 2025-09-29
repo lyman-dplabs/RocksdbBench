@@ -7,6 +7,7 @@
 // 前向声明策略类
 class PageIndexStrategy;
 class DirectVersionStrategy;
+class DualRocksDBStrategy;
 
 // 策略工厂 - 启动时创建指定的策略
 class StorageStrategyFactory {
@@ -21,6 +22,7 @@ public:
 private:
     static std::unique_ptr<IStorageStrategy> create_page_index_strategy();
     static std::unique_ptr<IStorageStrategy> create_direct_version_strategy();
+    static std::unique_ptr<IStorageStrategy> create_dual_rocksdb_strategy();
 };
 
 // 基准配置 - 启动时选择策略

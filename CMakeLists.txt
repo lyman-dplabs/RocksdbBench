@@ -13,3 +13,16 @@ find_package(RocksDB CONFIG REQUIRED)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_subdirectory(src)
+
+# Main executable at top level
+add_executable(rocksdb_bench_app src/main.cpp)
+
+target_link_libraries(rocksdb_bench_app
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
+)

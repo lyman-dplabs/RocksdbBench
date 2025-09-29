@@ -14,7 +14,7 @@ The primary script for running benchmarks with configurable options.
 
 **Options:**
 - `--db-path PATH` - Database path (default: ./rocksdb_data)
-- `--strategy STRATEGY` - Storage strategy: `page_index` or `direct_version` (default: page_index)
+- `--strategy STRATEGY` - Storage strategy: `page_index`, `direct_version`, or `dual_rocksdb_adaptive` (default: page_index)
 - `--clean` - Clean existing data before starting
 - `--initial-records N` - Number of initial records
 - `--hotspot-updates N` - Number of hotspot updates
@@ -28,11 +28,14 @@ The primary script for running benchmarks with configurable options.
 # Use DirectVersionStrategy
 ./scripts/run.sh --strategy direct_version
 
+# Use DualRocksDB Adaptive Strategy (NEW)
+./scripts/run.sh --strategy dual_rocksdb_adaptive
+
 # Custom dataset size
-./scripts/run.sh --strategy direct_version --initial-records 50000000 --hotspot-updates 5000000
+./scripts/run.sh --strategy dual_rocksdb_adaptive --initial-records 50000000 --hotspot-updates 5000000
 
 # Clean run with custom path
-./scripts/run.sh --strategy page_index --db-path /tmp/my_benchmark --clean
+./scripts/run.sh --strategy dual_rocksdb_adaptive --db-path /tmp/my_benchmark --clean
 ```
 
 ### `test_both_strategies.sh` - Quick Comparison Test
@@ -80,6 +83,20 @@ Compiles the benchmark application.
 - Uses seek_last approach for version queries
 - Key prefix-based organization (simplified from column families)
 
+### DualRocksDB Adaptive Strategy (NEW)
+- **Dual Database Architecture**: Two separate RocksDB instances for optimal performance
+  1. **Range Index Database**: Stores address-to-range mappings for efficient lookups
+  2. **Data Storage Database**: Stores range-prefixed actual data with optimized organization
+- **Adaptive Caching System**: Three-level intelligent caching:
+  - L1 Hot Cache: Complete data caching for high-frequency access
+  - L2 Medium Cache: Range list caching for balanced memory usage
+  - L3 Passive Cache: Query-time caching for memory efficiency
+- **Mandatory Seek-Last Optimization**: Core lookup mechanism for maximum query performance
+- **Range-Based Partitioning**: Configurable range size (default: 10,000 blocks) for scalable data organization
+- **Memory Pressure Management**: Automatic monitoring and cache eviction based on system resources
+- **Configuration Options**: Customizable cache ratios, compression, bloom filters, and memory limits
+- **Large Dataset Optimized**: Designed to efficiently handle 20B+ key-value pairs with intelligent memory management
+
 ## Common Workflows
 
 ### 1. Quick Test
@@ -89,14 +106,19 @@ Compiles the benchmark application.
 
 ### 2. Performance Comparison
 ```bash
-# Run both strategies with identical parameters
+# Run all strategies with identical parameters
 ./scripts/run.sh --strategy page_index --db-path ./data_page_index --clean --initial-records 100000000
 ./scripts/run.sh --strategy direct_version --db-path ./data_direct_version --clean --initial-records 100000000
+./scripts/run.sh --strategy dual_rocksdb_adaptive --db-path ./data_dual_adaptive --clean --initial-records 100000000
 ```
 
 ### 3. Custom Benchmark
 ```bash
-./scripts/run.sh --strategy direct_version --initial-records 50000000 --hotspot-updates 10000000 --clean
+# DualRocksDB Adaptive with large dataset
+./scripts/run.sh --strategy dual_rocksdb_adaptive --initial-records 50000000 --hotspot-updates 10000000 --clean
+
+# Small dataset testing
+./scripts/run.sh --strategy dual_rocksdb_adaptive --initial-records 1000 --hotspot-updates 100 --clean
 ```
 
 ### 4. Development and Testing
@@ -107,14 +129,17 @@ Compiles the benchmark application.
 # Quick test
 ./scripts/test_both_strategies.sh
 
+# Test new DualRocksDB strategy
+./scripts/run.sh --strategy dual_rocksdb_adaptive --initial-records 10000 --hotspot-updates 1000 --clean
+
 # Full benchmark
-./scripts/run.sh --strategy direct_version --clean
+./scripts/run.sh --strategy dual_rocksdb_adaptive --clean
 ```
 
 ## Output Locations
 
 - **Default database path:** `./rocksdb_data/`
-- **Executable:** `./build/src/rocksdb_bench_app`
+- **Executable:** `./build/rocksdb_bench_app`
 - **Logs:** Printed to console
 
 ## Tips

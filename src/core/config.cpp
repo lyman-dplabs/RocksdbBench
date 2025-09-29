@@ -1,6 +1,7 @@
 #include "config.hpp"
 #include "../strategies/page_index_strategy.hpp"
 #include "../strategies/direct_version_strategy.hpp"
+#include "../strategies/dual_rocksdb_strategy.hpp"
 #include "../utils/logger.hpp"
 #include <iostream>
 #include <fstream>
@@ -22,6 +23,8 @@ std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_strategy(
         return create_page_index_strategy();
     } else if (normalized_type == "direct_version" || normalized_type == "directversion") {
         return create_direct_version_strategy();
+    } else if (normalized_type == "dual_rocksdb_adaptive" || normalized_type == "dualrocksdbadaptive") {
+        return create_dual_rocksdb_strategy();
     } else if (normalized_type == "simple_keyblock" || normalized_type == "simplekeyblock") {
         // TODO: 实现SimpleKeyBlockStrategy
         throw std::runtime_error("Strategy 'simple_keyblock' not yet implemented");
@@ -35,7 +38,7 @@ std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_strategy(
 
 std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_page_index_strategy() {
     // 创建PageIndexStrategy，设置merge callback
-    auto strategy = std::make_unique<PageIndexStrategy>();
+    auto strategy = std::make_unique<PageIndexStrategy>(nullptr);
     return strategy;
 }
 
@@ -43,8 +46,14 @@ std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_direct_version_
     return std::make_unique<DirectVersionStrategy>();
 }
 
+std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_dual_rocksdb_strategy() {
+    DualRocksDBStrategy::Config config;
+    // 使用默认配置，可以根据需要从命令行参数或配置文件读取
+    return std::make_unique<DualRocksDBStrategy>(config);
+}
+
 std::vector<std::string> StorageStrategyFactory::get_available_strategies() {
-    return {"page_index", "direct_version", "simple_keyblock", "reduced_keyblock"};
+    return {"page_index", "direct_version", "dual_rocksdb_adaptive", "simple_keyblock", "reduced_keyblock"};
 }
 
 void StorageStrategyFactory::print_available_strategies() {
