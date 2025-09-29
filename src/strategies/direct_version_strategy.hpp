@@ -10,6 +10,9 @@
 
 class DirectVersionStrategy : public IStorageStrategy {
 public:
+    DirectVersionStrategy() = default;
+    virtual ~DirectVersionStrategy() = default;
+    
     bool initialize(rocksdb::DB* db) override;
     
     bool write_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) override;

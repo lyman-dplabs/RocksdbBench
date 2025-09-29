@@ -3,6 +3,7 @@ add_library(strategies_lib
     page_index_strategy.cpp
     direct_version_strategy.cpp
     dual_rocksdb_strategy.cpp
+    strategy_factory.cpp
 )
 
 target_include_directories(strategies_lib

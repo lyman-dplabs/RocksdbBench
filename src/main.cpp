@@ -3,6 +3,7 @@
 #include "benchmark/strategy_scenario_runner.hpp"
 #include "benchmark/metrics_collector.hpp"
 #include "utils/logger.hpp"
+#include "strategies/strategy_factory.hpp"
 #include <iostream>
 #include <string>
 #include <memory>
