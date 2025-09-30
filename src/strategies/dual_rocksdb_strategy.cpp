@@ -2,6 +2,7 @@
 #include "../core/types.hpp"
 #include <rocksdb/options.h>
 #include <rocksdb/filter_policy.h>
+#include <rocksdb/statistics.h>
 #include <algorithm>
 
 using namespace utils;
@@ -182,7 +183,7 @@ std::optional<Value> DualRocksDBStrategy::query_historical_value(rocksdb::DB* db
                                                                    BlockNum target_block) {
     total_reads_++;
     
-    // 获取地址的所有范围
+    // 获取地址的所有范围，按块号排序
     std::vector<uint32_t> ranges = get_address_ranges(range_index_db_.get(), addr_slot);
     if (ranges.empty()) {
         return std::nullopt;
@@ -191,20 +192,28 @@ std::optional<Value> DualRocksDBStrategy::query_historical_value(rocksdb::DB* db
     // 计算目标范围
     uint32_t target_range = calculate_range(target_block);
     
-    // 检查目标范围是否在地址的修改范围内
-    if (std::find(ranges.begin(), ranges.end(), target_range) == ranges.end()) {
-        // 地址在目标范围内没有修改，返回前一个修改范围的最新值
-        return std::nullopt;
+    // 按范围号排序（从小到大）
+    std::sort(ranges.begin(), ranges.end());
+    
+    // 从目标范围开始，向前查找第一个有修改的范围
+    for (int i = ranges.size() - 1; i >= 0; i--) {
+        uint32_t current_range = ranges[i];
+        
+        // 如果当前范围大于目标范围，跳过（这些是未来的修改）
+        if (current_range > target_range) {
+            continue;
+        }
+        
+        // 在当前范围内找到 <= target_block 的最大块号
+        auto latest_block = find_latest_block_in_range(data_storage_db_.get(), current_range, addr_slot, target_block);
+        if (latest_block) {
+            // 找到了符合条件的块，获取其值
+            return get_value_from_data_db(data_storage_db_.get(), current_range, addr_slot, *latest_block);
+        }
     }
     
-    // 在目标范围内找到 <= target_block 的最大块号
-    auto latest_block = find_latest_block_in_range(data_storage_db_.get(), target_range, addr_slot, target_block);
-    if (!latest_block) {
-        return std::nullopt;
-    }
-    
-    // 获取对应块的值
-    return get_value_from_data_db(data_storage_db_.get(), target_range, addr_slot, *latest_block);
+    // 没有找到任何符合条件的值
+    return std::nullopt;
 }
 
 bool DualRocksDBStrategy::cleanup(rocksdb::DB* db) {
@@ -239,7 +248,48 @@ double DualRocksDBStrategy::get_cache_hit_rate() const {
     return static_cast<double>(cache_hits_.load()) / total;
 }
 
+uint64_t DualRocksDBStrategy::get_compaction_bytes_written() const {
+    // 从data_storage_db_获取统计信息
+    if (!data_storage_db_) return 0;
+    
+    auto options = data_storage_db_->GetOptions();
+    auto statistics = options.statistics;
+    if (!statistics) return 0;
+    
+    return statistics->getTickerCount(rocksdb::COMPACT_WRITE_BYTES);
+}
+
+uint64_t DualRocksDBStrategy::get_compaction_bytes_read() const {
+    // 从data_storage_db_获取统计信息
+    if (!data_storage_db_) return 0;
+    
+    auto options = data_storage_db_->GetOptions();
+    auto statistics = options.statistics;
+    if (!statistics) return 0;
+    
+    return statistics->getTickerCount(rocksdb::COMPACT_READ_BYTES);
+}
+
+uint64_t DualRocksDBStrategy::get_compaction_count() const {
+    // 从data_storage_db_获取统计信息
+    if (!data_storage_db_) return 0;
+    
+    auto options = data_storage_db_->GetOptions();
+    auto statistics = options.statistics;
+    if (!statistics) return 0;
+    
+    // 使用compaction相关统计的近似值
+    return statistics->getTickerCount(rocksdb::COMPACT_READ_BYTES) / (1024 * 1024); // 粗略估算
+}
+
+double DualRocksDBStrategy::get_compaction_efficiency() const {
+    uint64_t bytes_read = get_compaction_bytes_read();
+    if (bytes_read == 0) return 0.0;
+    return static_cast<double>(get_compaction_bytes_written()) / bytes_read;
+}
+
 // ===== 私有方法实现 =====
+
 
 uint32_t DualRocksDBStrategy::calculate_range(BlockNum block_num) const {
     return block_num / config_.range_size;
@@ -253,21 +303,14 @@ std::string DualRocksDBStrategy::build_data_key(uint32_t range_num, const std::s
 std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb::DB* db, uint32_t range_num, const std::string& addr_slot, BlockNum max_block) const {
     std::string prefix = "R" + std::to_string(range_num) + "|" + addr_slot + "|";
     
-    // 构造目标key，类似DirectVersionStrategy的version_key
-    std::string target_key = prefix + std::to_string(max_block);
-    
     rocksdb::ReadOptions options;
     std::unique_ptr<rocksdb::Iterator> it(db->NewIterator(options));
     
-    // 使用SeekForPrev找到<=target_key的最大key
-    it->SeekForPrev(target_key);
+    BlockNum latest_valid_block = 0;
+    bool found_any = false;
     
-    // 如果seek超出了范围，从最后一个开始
-    if (!it->Valid()) {
-        it->SeekToLast();
-    }
-    
-    while (it->Valid()) {
+    // 遍历整个数据库，找到所有匹配的key
+    for (it->SeekToLast(); it->Valid(); it->Prev()) {
         rocksdb::Slice current_key = it->key();
         std::string current_key_str = current_key.ToString();
         
@@ -275,21 +318,25 @@ std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb:
         if (current_key_str.find(prefix) == 0) {
             // 找到了匹配的key，解析block_number
             BlockNum found_block = extract_block_from_key(current_key_str);
-            if (found_block <= max_block) {
-                return found_block;
+            if (found_block <= max_block && found_block > latest_valid_block) {
+                latest_valid_block = found_block;
+                found_any = true;
             }
         }
         
-        // 如果key已经小于prefix，说明没有找到
+        // 如果key已经小于prefix，可以提前退出循环
         if (current_key_str < prefix) {
             break;
         }
-        
-        it->Prev();
+    }
+    
+    if (found_any) {
+        return latest_valid_block;
     }
     
     return std::nullopt;
 }
+
 
 std::optional<Value> DualRocksDBStrategy::get_value_from_data_db(rocksdb::DB* db, uint32_t range_num, const std::string& addr_slot, BlockNum block_num) const {
     std::string key = build_data_key(range_num, addr_slot, block_num);
@@ -432,6 +479,10 @@ rocksdb::Options DualRocksDBStrategy::get_rocksdb_options(bool is_range_index) c
     if (config_.enable_bloom_filters) {
         options.memtable_prefix_bloom_size_ratio = 0.1;
     }
+    
+    // 启用统计信息收集，复用DBManager的实现
+    auto statistics = rocksdb::CreateDBStatistics();
+    options.statistics = statistics;
     
     // 为范围索引数据库优化
     if (is_range_index) {

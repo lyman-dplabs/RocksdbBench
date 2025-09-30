@@ -11,6 +11,7 @@ add_executable(test_bloom_simple test_bloom_simple.cpp)
 add_executable(test_index_search test_index_search.cpp)
 add_executable(test_dual_strategy test_dual_strategy.cpp)
 add_executable(test_args test_args.cpp)
+add_executable(test_historical_fix test_historical_fix.cpp)
 add_executable(test_simple_keyblock test_simple_keyblock.cpp)
 add_executable(test_reduced_keyblock test_reduced_keyblock.cpp)
 
@@ -80,6 +81,16 @@ target_link_libraries(test_args
         strategies_lib
         CLI11::CLI11
         nlohmann_json::nlohmann_json
+)
+
+target_link_libraries(test_historical_fix
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
 )
 
 target_link_libraries(test_simple_keyblock

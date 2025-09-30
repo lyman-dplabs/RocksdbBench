@@ -1,6 +1,7 @@
 #include "db_manager.hpp"
 #include <rocksdb/options.h>
 #include <rocksdb/status.h>
+#include <rocksdb/statistics.h>
 #include <algorithm>
 #include <cstring>
 #include <filesystem>

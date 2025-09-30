@@ -25,6 +25,7 @@ private:
     // 自适应缓存管理器
     std::unique_ptr<AdaptiveCacheManager> cache_manager_;
     
+        
   public:
     // 配置参数
     struct Config {
@@ -47,6 +48,9 @@ private:
     std::atomic<uint64_t> total_reads_{0};
     std::atomic<uint64_t> total_writes_{0};
     std::atomic<uint64_t> cache_hits_{0};
+    
+    // 复用DBManager的SST合并效率统计
+    // 通过主数据库的statistics_获取compaction指标
     
 public:
     explicit DualRocksDBStrategy(const Config& config);
@@ -77,6 +81,12 @@ public:
     uint64_t get_cache_hits() const { return cache_hits_.load(); }
     double get_cache_hit_rate() const;
     
+    // SST合并效率统计接口 - 复用DBManager的统计
+    uint64_t get_compaction_bytes_written() const;
+    uint64_t get_compaction_bytes_read() const;
+    uint64_t get_compaction_count() const;
+    double get_compaction_efficiency() const;
+    
     // 分片接口（可选功能）
     std::string get_shard_path(const std::string& base_path, size_t shard_index) const;
 
@@ -86,6 +96,7 @@ private:
     std::string build_data_key(uint32_t range_num, const std::string& addr_slot, BlockNum block_num) const;
     std::string build_data_prefix(uint32_t range_num, const std::string& addr_slot) const;
     
+        
     // Seek-Last查找优化（核心机制，强制启用）
     std::optional<BlockNum> find_latest_block_in_range(rocksdb::DB* db, 
                                                          uint32_t range_num, 
