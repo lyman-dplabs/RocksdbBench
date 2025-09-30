@@ -312,10 +312,12 @@ uint32_t DualRocksDBStrategy::calculate_range(BlockNum block_num) const {
 }
 
 std::string DualRocksDBStrategy::build_data_key(uint32_t range_num, const std::string& addr_slot, BlockNum block_num) const {
-    // 使用零填充的数字确保正确的字符串排序
-    // 假设块号最多20位（uint64_t最大值是18446744073709551615，20位）
+    // 使用固定10位零填充，平衡内存使用和排序需求
+    // 覆盖范围：0-9,999,999,999 (100亿块号，足够区块链使用)
     std::string block_str = std::to_string(block_num);
-    block_str.insert(0, 20 - block_str.length(), '0');
+    if (block_str.length() < 10) {
+        block_str.insert(0, 10 - block_str.length(), '0');
+    }
     
     return "R" + std::to_string(range_num) + "|" + addr_slot + "|" + block_str;
 }
@@ -331,9 +333,11 @@ std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb:
     BlockNum range_max_block = (range_num + 1) * config_.range_size - 1;
     BlockNum effective_max_block = std::min(max_block, range_max_block);
     
-    // 构造target key: R{range_num}|{addr_slot}|{effective_max_block} (使用零填充)
+    // 构造target key: R{range_num}|{addr_slot}|{effective_max_block} (使用10位零填充)
     std::string max_block_str = std::to_string(effective_max_block);
-    max_block_str.insert(0, 20 - max_block_str.length(), '0');
+    if (max_block_str.length() < 10) {
+        max_block_str.insert(0, 10 - max_block_str.length(), '0');
+    }
     std::string target_key = prefix + max_block_str;
     
     // 使用SeekForPrev直接定位到<=target_key的最大key
@@ -344,12 +348,12 @@ std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb:
     
     while (it->Valid()) {
         rocksdb::Slice current_key = it->key();
-        std::string current_key_str = current_key.ToString();
+        std::string_view key_view(current_key.data(), current_key.size());
         
-        // 检查key是否以正确的prefix开头
-        if (current_key_str.find(prefix) == 0) {
+        // 检查key是否以正确的prefix开头（使用string_view避免复制）
+        if (key_view.substr(0, prefix.length()) == prefix) {
             // 找到了匹配的key，解析block_number
-            BlockNum found_block = extract_block_from_key(current_key_str);
+            BlockNum found_block = extract_block_from_key(std::string(key_view));
             if (found_block <= max_block && found_block > latest_valid_block) {
                 latest_valid_block = found_block;
                 found = true;
@@ -359,7 +363,7 @@ std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb:
         }
         
         // 如果key已经小于prefix，说明没有更匹配的key了
-        if (current_key_str < prefix) {
+        if (key_view < prefix) {
             break;
         }
         

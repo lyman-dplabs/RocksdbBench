@@ -119,37 +119,43 @@ void AdaptiveCacheManager::manage_memory_pressure() {
 void AdaptiveCacheManager::evict_least_used() {
     std::lock_guard<std::mutex> lock(cache_mutex_);
     
+    size_t original_usage = current_memory_usage_;
+    
     // 清理被动缓存
-    if (current_memory_usage_ > max_memory_limit_ * 0.8) {
-        // 简化清理逻辑，直接清理50%的缓存
-        size_t to_remove = passive_cache_.size() / 2;
-        auto it = passive_cache_.begin();
-        for (size_t i = 0; i < to_remove && it != passive_cache_.end(); ++i) {
-            it = passive_cache_.erase(it);
+    if (!passive_cache_.empty()) {
+        size_t evict_count = passive_cache_.size() / 2;
+        for (size_t i = 0; i < evict_count && !passive_cache_.empty(); ++i) {
+            auto it = passive_cache_.begin();
+            current_memory_usage_ -= estimate_entry_size(it->second);
+            passive_cache_.erase(it);
         }
     }
     
     // 清理中等缓存
-    if (current_memory_usage_ > max_memory_limit_ * 0.6) {
-        // 简化清理逻辑，直接清理30%的缓存
-        size_t to_remove = range_cache_.size() * 0.3;
-        auto it = range_cache_.begin();
-        for (size_t i = 0; i < to_remove && it != range_cache_.end(); ++i) {
-            it = range_cache_.erase(it);
+    if (current_memory_usage_ > max_memory_limit_ * 0.7 && !range_cache_.empty()) {
+        size_t evict_count = range_cache_.size() / 3;
+        for (size_t i = 0; i < evict_count && !range_cache_.empty(); ++i) {
+            auto it = range_cache_.begin();
+            current_memory_usage_ -= it->second.size() * sizeof(uint32_t) + it->first.size();
+            range_cache_.erase(it);
         }
     }
     
-    // 重新计算内存使用
-    current_memory_usage_ = 0;
-    for (const auto& [key, entry] : hot_cache_) {
-        current_memory_usage_ += estimate_entry_size(entry.value);
+    // 清理热点缓存（最后手段）
+    if (current_memory_usage_ > max_memory_limit_ * 0.9 && !hot_cache_.empty()) {
+        auto oldest = std::min_element(hot_cache_.begin(), hot_cache_.end(),
+            [](const auto& a, const auto& b) {
+                return a.second.last_access < b.second.last_access;
+            });
+        
+        if (oldest != hot_cache_.end()) {
+            current_memory_usage_ -= estimate_entry_size(oldest->second.value);
+            hot_cache_.erase(oldest);
+        }
     }
-    for (const auto& [key, ranges] : range_cache_) {
-        current_memory_usage_ += ranges.size() * sizeof(uint32_t) + key.size();
-    }
-    for (const auto& [key, value] : passive_cache_) {
-        current_memory_usage_ += estimate_entry_size(value);
-    }
+    
+    // 防止内存统计负数
+    if (current_memory_usage_ < 0) current_memory_usage_ = 0;
 }
 
 void AdaptiveCacheManager::set_config(double hot_ratio, double medium_ratio) {
@@ -166,6 +172,7 @@ void AdaptiveCacheManager::clear_expired() {
     for (auto it = hot_cache_.begin(); it != hot_cache_.end();) {
         auto age = std::chrono::duration_cast<std::chrono::seconds>(now - it->second.last_access);
         if (age.count() > 3600) {
+            current_memory_usage_ -= estimate_entry_size(it->second.value);
             it = hot_cache_.erase(it);
         } else {
             ++it;
@@ -178,10 +185,37 @@ void AdaptiveCacheManager::clear_expired() {
         if (stats_it != access_stats_.end()) {
             auto age = std::chrono::duration_cast<std::chrono::seconds>(now - stats_it->second.last_access);
             if (age.count() > 1800) {
+                current_memory_usage_ -= it->second.size() * sizeof(uint32_t) + it->first.size();
                 it = range_cache_.erase(it);
             } else {
                 ++it;
             }
+        } else {
+            ++it;
+        }
+    }
+    
+    // 清理15分钟未访问的被动缓存
+    for (auto it = passive_cache_.begin(); it != passive_cache_.end();) {
+        auto stats_it = access_stats_.find(it->first);
+        if (stats_it != access_stats_.end()) {
+            auto age = std::chrono::duration_cast<std::chrono::seconds>(now - stats_it->second.last_access);
+            if (age.count() > 900) {
+                current_memory_usage_ -= estimate_entry_size(it->second);
+                it = passive_cache_.erase(it);
+            } else {
+                ++it;
+            }
+        } else {
+            ++it;
+        }
+    }
+    
+    // 清理过期的访问统计（24小时未访问）
+    for (auto it = access_stats_.begin(); it != access_stats_.end();) {
+        auto age = std::chrono::duration_cast<std::chrono::seconds>(now - it->second.last_access);
+        if (age.count() > 86400) { // 24小时
+            it = access_stats_.erase(it);
         } else {
             ++it;
         }
@@ -207,7 +241,9 @@ bool AdaptiveCacheManager::has_memory_for_medium_data() const {
 
 void AdaptiveCacheManager::update_memory_usage(size_t added_bytes) {
     current_memory_usage_ += added_bytes;
-    manage_memory_pressure();
+    if (current_memory_usage_ > max_memory_limit_) {
+        manage_memory_pressure();
+    }
 }
 
 size_t AdaptiveCacheManager::estimate_entry_size(const std::string& value) const {
