@@ -88,18 +88,18 @@ if [ ! -f "./build/rocksdb_bench_app" ]; then
 fi
 
 # Build command arguments
-CMD_ARGS="--db_path $DB_PATH --strategy $STRATEGY"
+CMD_ARGS="--db-path $DB_PATH --strategy $STRATEGY"
 
 if [[ "$CLEAN_DATA" == true ]]; then
-    CMD_ARGS="$CMD_ARGS --clean_data"
+    CMD_ARGS="$CMD_ARGS --clean-data"
 fi
 
 if [[ -n "$INITIAL_RECORDS" ]]; then
-    CMD_ARGS="$CMD_ARGS $INITIAL_RECORDS"
+    CMD_ARGS="$CMD_ARGS --initial-records ${INITIAL_RECORDS#* }"
 fi
 
 if [[ -n "$HOTSPOT_UPDATES" ]]; then
-    CMD_ARGS="$CMD_ARGS $HOTSPOT_UPDATES"
+    CMD_ARGS="$CMD_ARGS --hotspot-updates ${HOTSPOT_UPDATES#* }"
 fi
 
 echo "Starting benchmark..."

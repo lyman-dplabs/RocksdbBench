@@ -25,9 +25,12 @@ DualRocksDBStrategy::~DualRocksDBStrategy() {
 }
 
 bool DualRocksDBStrategy::initialize(rocksdb::DB* main_db) {
-    // 获取主数据库路径
-    std::string db_path;
-    main_db->GetEnv()->GetAbsolutePath("./rocksdb_data", &db_path);
+    // 获取主数据库路径 - 从主数据库的GetName()方法获取
+    std::string db_path = main_db->GetName();
+    if (db_path.empty()) {
+        // 如果GetName()返回空，使用默认路径
+        main_db->GetEnv()->GetAbsolutePath("./rocksdb_data", &db_path);
+    }
     
     // 打开双数据库实例
     rocksdb::Options range_options = get_rocksdb_options(true);
