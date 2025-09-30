@@ -13,6 +13,8 @@ target_link_libraries(core_lib
     PUBLIC
         RocksDB::rocksdb
         fmt::fmt
+        CLI11::CLI11
+        nlohmann_json::nlohmann_json
     PRIVATE
         strategies_lib
         utils_lib

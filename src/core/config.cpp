@@ -1,146 +1,380 @@
 #include "config.hpp"
 #include "../strategies/strategy_factory.hpp"
 #include "../utils/logger.hpp"
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <filesystem>
+#include <CLI/CLI.hpp>
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <nlohmann/json.hpp>
+#include <sstream>
 
-// BenchmarkConfig实现
-BenchmarkConfig BenchmarkConfig::from_args(int argc, char* argv[]) {
-    BenchmarkConfig config;
-    
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        
-        if (arg == "--help" || arg == "-h") {
-            print_help(argv[0]);
-            exit(0);
-        } else if (arg.starts_with("--strategy=")) {
-            config.storage_strategy = arg.substr(10);
-        } else if (arg == "--strategy" && i + 1 < argc) {
-            config.storage_strategy = argv[++i];
-        } else if (arg.starts_with("--db_path=")) {
-            config.db_path = arg.substr(10);
-        } else if (arg == "--db_path" && i + 1 < argc) {
-            config.db_path = argv[++i];
-        } else if (arg.starts_with("--initial_records=")) {
-            config.initial_records = std::stoull(arg.substr(17));
-        } else if (arg == "--initial_records" && i + 1 < argc) {
-            config.initial_records = std::stoull(argv[++i]);
-        } else if (arg.starts_with("--hotspot_updates=")) {
-            config.hotspot_updates = std::stoull(arg.substr(17));
-        } else if (arg == "--hotspot_updates" && i + 1 < argc) {
-            config.hotspot_updates = std::stoull(argv[++i]);
-        } else if (arg.starts_with("--query_interval=")) {
-            config.query_interval = std::stoull(arg.substr(15));
-        } else if (arg == "--query_interval" && i + 1 < argc) {
-            config.query_interval = std::stoull(argv[++i]);
-        } else if (arg == "--disable_bloom_filter") {
-            config.enable_bloom_filter = false;
-        } else if (arg == "--clean_data") {
-            config.clean_existing_data = true;
-        } else if (arg.starts_with("--config=")) {
-            std::string config_path = arg.substr(9);
-            return from_file(config_path);
-        } else if (!arg.starts_with("--")) {
-            // 位置参数：数据库路径
-            config.db_path = arg;
-        } else {
-            throw ConfigError("Unknown argument: " + arg);
-        }
+// 使用json库进行配置文件读写
+using json = nlohmann::json;
+
+// BenchmarkConfig实现 - 使用CLI11
+BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
+  BenchmarkConfig config;
+
+  CLI::App app{"RocksDB Benchmark Tool - Modern Command Line Interface"};
+
+  // 基本选项
+  app.add_option("-s,--strategy", config.storage_strategy,
+                 "Storage strategy to use (page_index, direct_version, "
+                 "dual_rocksdb_adaptive)")
+      ->check(CLI::IsMember({"page_index", "direct_version",
+                             "dual_rocksdb_adaptive", "simple_keyblock",
+                             "reduced_keyblock"}))
+      ->default_val("page_index");
+
+  app.add_option("-d,--db-path", config.db_path, "Database path")
+      ->default_val("./rocksdb_data");
+
+  app.add_option("-i,--initial-records", config.initial_records,
+                 "Number of initial records")
+      ->default_val(100000000)
+      ->check(CLI::PositiveNumber);
+
+  app.add_option("-u,--hotspot-updates", config.hotspot_updates,
+                 "Number of hotspot updates")
+      ->default_val(10000000)
+      ->check(CLI::PositiveNumber);
+
+  app.add_option("-q,--query-interval", config.query_interval, "Query interval")
+      ->default_val(500000)
+      ->check(CLI::PositiveNumber);
+
+  // 布尔选项
+  app.add_flag("--disable-bloom-filter", config.enable_bloom_filter,
+               "Disable bloom filter (default: enabled)")
+      ->default_val(true);
+
+  app.add_flag("-c,--clean-data", config.clean_existing_data,
+               "Clean existing data before starting");
+
+  app.add_flag("-v,--verbose", config.verbose, "Enable verbose output");
+
+  // app.add_flag("--version", config.version,
+  //                 "Show version information");
+
+  // 新增选项
+  app.add_option("-t,--threads", config.thread_count, "Number of threads")
+      ->default_val(1)
+      ->check(CLI::PositiveNumber);
+
+  app.add_option("--log-level", config.log_level,
+                 "Log level (trace, debug, info, warn, error)")
+      ->check(CLI::IsMember({"trace", "debug", "info", "warn", "error"}))
+      ->default_val("info");
+
+  app.add_option("-f,--config", config.config_file,
+                 "Load configuration from file");
+
+  // DualRocksDB特定配置
+  auto *dual_group = app.add_option_group(
+      "DualRocksDB Options",
+      "Options specific to dual_rocksdb_adaptive strategy");
+
+  dual_group
+      ->add_option("--dual-range-size", config.dual_rocksdb_range_size,
+                   "Range size for DualRocksDB strategy")
+      ->default_val(10000)
+      ->check(CLI::PositiveNumber);
+
+  dual_group
+      ->add_option("--dual-cache-size", config.dual_rocksdb_cache_size,
+                   "Cache size in bytes for DualRocksDB strategy")
+      ->default_val(1024 * 1024 * 1024)
+      ->check(CLI::PositiveNumber);
+
+  dual_group
+      ->add_option("--dual-hot-ratio", config.dual_rocksdb_hot_ratio,
+                   "Hot cache ratio for DualRocksDB strategy")
+      ->default_val(0.01)
+      ->check(CLI::Range(0.0, 1.0));
+
+  dual_group
+      ->add_option("--dual-medium-ratio", config.dual_rocksdb_medium_ratio,
+                   "Medium cache ratio for DualRocksDB strategy")
+      ->default_val(0.05)
+      ->check(CLI::Range(0.0, 1.0));
+
+  dual_group
+      ->add_flag("--dual-disable-compression", config.dual_rocksdb_compression,
+                 "Disable compression for DualRocksDB strategy")
+      ->default_val(true);
+
+  dual_group
+      ->add_flag("--dual-disable-bloom", config.dual_rocksdb_bloom_filters,
+                 "Disable bloom filters for DualRocksDB strategy")
+      ->default_val(true);
+
+  // 位置参数
+  app.add_option("db_path_pos", config.db_path,
+                 "Database path (positional argument)")
+      ->expected(0, 1);
+
+  // 设置帮助信息格式
+  app.set_help_flag("-h,--help", "Show help message");
+  app.set_version_flag("--version", "1.0.0");
+
+  // 验证回调
+  app.callback([&config]() {
+    if (!config.validate()) {
+      auto errors = config.get_validation_errors();
+      for (const auto &error : errors) {
+        std::cerr << "Error: " << error << std::endl;
+      }
+      throw CLI::ValidationError("Configuration validation failed");
     }
-    
-    return config;
+  });
+
+  try {
+    // 使用CLI11_PARSE_AND_THROW，如果失败会抛出异常
+    app.parse(argc, argv);
+
+    // 如果指定了配置文件，则加载配置文件
+    if (!config.config_file.empty()) {
+      auto file_config = from_file(config.config_file);
+      // 命令行参数优先级高于配置文件
+      if (config.storage_strategy ==
+          "page_index") { // 默认值，可能被配置文件覆盖
+        config.storage_strategy = file_config.storage_strategy;
+      }
+      if (config.db_path == "./rocksdb_data") { // 默认值，可能被配置文件覆盖
+        config.db_path = file_config.db_path;
+      }
+      // 其他字段的合并逻辑...
+    }
+
+  } catch (const CLI::ParseError &e) {
+    std::cerr << "Parse error: " << e.what() << std::endl;
+    if (e.get_exit_code() != 0) {
+      exit(e.get_exit_code());
+    }
+    throw ConfigError("Parse error: " + std::string(e.what()));
+  } catch (const CLI::Error &e) {
+    std::cerr << "CLI error: " << e.what() << std::endl;
+    throw ConfigError("CLI error: " + std::string(e.what()));
+  }
+
+  return config;
 }
 
-BenchmarkConfig BenchmarkConfig::from_file(const std::string& config_path) {
-    std::ifstream file(config_path);
-    if (!file.is_open()) {
-        throw ConfigError("Cannot open config file: " + config_path);
-    }
-    
+BenchmarkConfig BenchmarkConfig::from_file(const std::string &config_path) {
+  std::ifstream file(config_path);
+  if (!file.is_open()) {
+    throw ConfigError("Cannot open config file: " + config_path);
+  }
+
+  try {
+    json j;
+    file >> j;
+
     BenchmarkConfig config;
-    std::string line;
-    std::string section;
-    
-    while (std::getline(file, line)) {
-        // 移除注释和空白
-        line = line.substr(0, line.find('#'));
-        line.erase(0, line.find_first_not_of(" \t"));
-        line.erase(line.find_last_not_of(" \t") + 1);
-        
-        if (line.empty()) continue;
-        
-        // 处理section头
-        if (line[0] == '[' && line[line.length() - 1] == ']') {
-            section = line.substr(1, line.length() - 2);
-            continue;
-        }
-        
-        // 处理key=value
-        size_t equal_pos = line.find('=');
-        if (equal_pos != std::string::npos) {
-            std::string key = line.substr(0, equal_pos);
-            std::string value = line.substr(equal_pos + 1);
-            
-            // 移除空白
-            key.erase(0, key.find_first_not_of(" \t"));
-            key.erase(key.find_last_not_of(" \t") + 1);
-            value.erase(0, value.find_first_not_of(" \t"));
-            value.erase(value.find_last_not_of(" \t") + 1);
-            
-            if (section.empty() || section == "benchmark") {
-                if (key == "storage_strategy") {
-                    config.storage_strategy = value;
-                } else if (key == "db_path") {
-                    config.db_path = value;
-                } else if (key == "initial_records") {
-                    config.initial_records = std::stoull(value);
-                } else if (key == "hotspot_updates") {
-                    config.hotspot_updates = std::stoull(value);
-                } else if (key == "query_interval") {
-                    config.query_interval = std::stoull(value);
-                } else if (key == "enable_bloom_filter") {
-                    config.enable_bloom_filter = (value == "true" || value == "1");
-                } else if (key == "clean_existing_data") {
-                    config.clean_existing_data = (value == "true" || value == "1");
-                }
-            }
-        }
+
+    if (j.contains("benchmark")) {
+      auto &bench = j["benchmark"];
+      if (bench.contains("storage_strategy"))
+        config.storage_strategy = bench["storage_strategy"].get<std::string>();
+      if (bench.contains("db_path"))
+        config.db_path = bench["db_path"].get<std::string>();
+      if (bench.contains("initial_records"))
+        config.initial_records = bench["initial_records"].get<size_t>();
+      if (bench.contains("hotspot_updates"))
+        config.hotspot_updates = bench["hotspot_updates"].get<size_t>();
+      if (bench.contains("query_interval"))
+        config.query_interval = bench["query_interval"].get<size_t>();
+      if (bench.contains("enable_bloom_filter"))
+        config.enable_bloom_filter = bench["enable_bloom_filter"].get<bool>();
+      if (bench.contains("clean_existing_data"))
+        config.clean_existing_data = bench["clean_existing_data"].get<bool>();
+      if (bench.contains("verbose"))
+        config.verbose = bench["verbose"].get<bool>();
+      if (bench.contains("thread_count"))
+        config.thread_count = bench["thread_count"].get<size_t>();
+      if (bench.contains("log_level"))
+        config.log_level = bench["log_level"].get<std::string>();
     }
-    
+
+    if (j.contains("dual_rocksdb")) {
+      auto &dual = j["dual_rocksdb"];
+      if (dual.contains("range_size"))
+        config.dual_rocksdb_range_size = dual["range_size"].get<size_t>();
+      if (dual.contains("cache_size"))
+        config.dual_rocksdb_cache_size = dual["cache_size"].get<size_t>();
+      if (dual.contains("hot_ratio"))
+        config.dual_rocksdb_hot_ratio = dual["hot_ratio"].get<double>();
+      if (dual.contains("medium_ratio"))
+        config.dual_rocksdb_medium_ratio = dual["medium_ratio"].get<double>();
+      if (dual.contains("compression"))
+        config.dual_rocksdb_compression = dual["compression"].get<bool>();
+      if (dual.contains("bloom_filters"))
+        config.dual_rocksdb_bloom_filters = dual["bloom_filters"].get<bool>();
+    }
+
     return config;
+
+  } catch (const json::exception &e) {
+    throw ConfigError("JSON parse error in config file: " +
+                      std::string(e.what()));
+  }
+}
+
+void BenchmarkConfig::save_to_file(const std::string &config_path) const {
+  json j;
+
+  j["benchmark"] = {{"storage_strategy", storage_strategy},
+                    {"db_path", db_path},
+                    {"initial_records", initial_records},
+                    {"hotspot_updates", hotspot_updates},
+                    {"query_interval", query_interval},
+                    {"enable_bloom_filter", enable_bloom_filter},
+                    {"clean_existing_data", clean_existing_data},
+                    {"verbose", verbose},
+                    {"thread_count", thread_count},
+                    {"log_level", log_level}};
+
+  j["dual_rocksdb"] = {{"range_size", dual_rocksdb_range_size},
+                       {"cache_size", dual_rocksdb_cache_size},
+                       {"hot_ratio", dual_rocksdb_hot_ratio},
+                       {"medium_ratio", dual_rocksdb_medium_ratio},
+                       {"compression", dual_rocksdb_compression},
+                       {"bloom_filters", dual_rocksdb_bloom_filters}};
+
+  std::ofstream file(config_path);
+  if (!file.is_open()) {
+    throw ConfigError("Cannot write to config file: " + config_path);
+  }
+
+  file << j.dump(4); // 缩进4个空格，格式化输出
 }
 
 void BenchmarkConfig::print_config() const {
-    utils::log_info("=== Benchmark Configuration ===");
-    utils::log_info("Storage Strategy: {}", storage_strategy);
-    utils::log_info("Database Path: {}", db_path);
-    utils::log_info("Initial Records: {}", initial_records);
-    utils::log_info("Hotspot Updates: {}", hotspot_updates);
-    utils::log_info("Query Interval: {}", query_interval);
-    utils::log_info("Bloom Filter: {}", enable_bloom_filter ? "Enabled" : "Disabled");
-    utils::log_info("Clean Existing Data: {}", clean_existing_data ? "Yes" : "No");
-    utils::log_info("==============================");
+  utils::log_info("=== Benchmark Configuration ===");
+  utils::log_info("Storage Strategy: {}", storage_strategy);
+  utils::log_info("Database Path: {}", db_path);
+  utils::log_info("Initial Records: {}", initial_records);
+  utils::log_info("Hotspot Updates: {}", hotspot_updates);
+  utils::log_info("Query Interval: {}", query_interval);
+  utils::log_info("Bloom Filter: {}",
+                  enable_bloom_filter ? "Enabled" : "Disabled");
+  utils::log_info("Clean Existing Data: {}",
+                  clean_existing_data ? "Yes" : "No");
+  utils::log_info("Thread Count: {}", thread_count);
+  utils::log_info("Log Level: {}", log_level);
+  utils::log_info("Verbose Output: {}", verbose ? "Yes" : "No");
+
+  if (storage_strategy == "dual_rocksdb_adaptive") {
+    utils::log_info("DualRocksDB Config:");
+    utils::log_info("  Range Size: {}", dual_rocksdb_range_size);
+    utils::log_info("  Cache Size: {} MB",
+                    dual_rocksdb_cache_size / (1024 * 1024));
+    utils::log_info("  Hot Cache Ratio: {:.2f}%", dual_rocksdb_hot_ratio * 100);
+    utils::log_info("  Medium Cache Ratio: {:.2f}%",
+                    dual_rocksdb_medium_ratio * 100);
+    utils::log_info("  Compression: {}",
+                    dual_rocksdb_compression ? "Enabled" : "Disabled");
+    utils::log_info("  Bloom Filters: {}",
+                    dual_rocksdb_bloom_filters ? "Enabled" : "Disabled");
+  }
+
+  utils::log_info("==============================");
 }
 
-void BenchmarkConfig::print_help(const std::string& program_name) {
-    std::cout << "Usage: " << program_name << " [options] [db_path]\n";
-    std::cout << "\nOptions:\n";
-    std::cout << "  --strategy STRATEGY          Storage strategy to use (page_index, direct_version)\n";
-    std::cout << "  --db_path PATH               Database path (default: ./rocksdb_data)\n";
-    std::cout << "  --initial_records N          Number of initial records (default: 100000000)\n";
-    std::cout << "  --hotspot_updates N          Number of hotspot updates (default: 10000000)\n";
-    std::cout << "  --query_interval N           Query interval (default: 500000)\n";
-    std::cout << "  --disable_bloom_filter       Disable bloom filter\n";
-    std::cout << "  --clean_data                 Clean existing data before starting\n";
-    std::cout << "  --config FILE                Load configuration from file\n";
-    std::cout << "  -h, --help                    Show this help message\n";
-    std::cout << "\nExamples:\n";
-    std::cout << "  " << program_name << " --strategy direct_version\n";
-    std::cout << "  " << program_name << " /path/to/db --strategy page_index\n";
-    std::cout << "  " << program_name << " --config benchmark_config.json\n";
+bool BenchmarkConfig::validate() const {
+  return get_validation_errors().empty();
+}
+
+std::vector<std::string> BenchmarkConfig::get_validation_errors() const {
+  std::vector<std::string> errors;
+
+  if (initial_records == 0) {
+    errors.push_back("Initial records must be greater than 0");
+  }
+
+  if (hotspot_updates > initial_records) {
+    errors.push_back("Hotspot updates cannot exceed initial records");
+  }
+
+  if (thread_count == 0) {
+    errors.push_back("Thread count must be greater than 0");
+  }
+
+  if (dual_rocksdb_hot_ratio + dual_rocksdb_medium_ratio > 1.0) {
+    errors.push_back("Hot + medium cache ratio cannot exceed 1.0");
+  }
+
+  if (storage_strategy == "dual_rocksdb_adaptive") {
+    if (dual_rocksdb_range_size == 0) {
+      errors.push_back("DualRocksDB range size must be greater than 0");
+    }
+    if (dual_rocksdb_cache_size == 0) {
+      errors.push_back("DualRocksDB cache size must be greater than 0");
+    }
+  }
+
+  return errors;
+}
+
+std::string BenchmarkConfig::get_strategy_config() const {
+  std::ostringstream oss;
+
+  if (storage_strategy == "dual_rocksdb_adaptive") {
+    oss << "range_size=" << dual_rocksdb_range_size
+        << ",cache_size=" << dual_rocksdb_cache_size
+        << ",hot_ratio=" << dual_rocksdb_hot_ratio
+        << ",medium_ratio=" << dual_rocksdb_medium_ratio << ",compression="
+        << (dual_rocksdb_compression ? "enabled" : "disabled")
+        << ",bloom=" << (dual_rocksdb_bloom_filters ? "enabled" : "disabled");
+  }
+
+  return oss.str();
+}
+
+void BenchmarkConfig::print_help(const std::string &program_name) {
+  std::cout << "Usage: " << program_name << " [options] [db_path]\n";
+  std::cout << "\nBasic Options:\n";
+  std::cout << "  -s,--strategy STRATEGY       Storage strategy "
+               "(page_index|direct_version|dual_rocksdb_adaptive)\n";
+  std::cout << "  -d,--db-path PATH            Database path (default: "
+               "./rocksdb_data)\n";
+  std::cout << "  -i,--initial-records N        Number of initial records "
+               "(default: 100000000)\n";
+  std::cout << "  -u,--hotspot-updates N        Number of hotspot updates "
+               "(default: 10000000)\n";
+  std::cout
+      << "  -q,--query-interval N         Query interval (default: 500000)\n";
+  std::cout
+      << "  -c,--clean-data              Clean existing data before starting\n";
+  std::cout
+      << "  -t,--threads N               Number of threads (default: 1)\n";
+  std::cout << "  -v,--verbose                 Enable verbose output\n";
+  std::cout
+      << "  -f,--config FILE             Load configuration from JSON file\n";
+  std::cout << "  --disable-bloom-filter       Disable bloom filter\n";
+  std::cout << "  --log-level LEVEL            Log level "
+               "(trace|debug|info|warn|error)\n";
+  std::cout << "  -h,--help                    Show this help message\n";
+  std::cout << "  --version                    Show version information\n";
+  std::cout << "\nDualRocksDB Options:\n";
+  std::cout << "  --dual-range-size N          Range size for DualRocksDB "
+               "strategy (default: 10000)\n";
+  std::cout << "  --dual-cache-size N          Cache size in bytes for "
+               "DualRocksDB strategy (default: 1GB)\n";
+  std::cout << "  --dual-hot-ratio RATIO       Hot cache ratio for DualRocksDB "
+               "strategy (default: 0.01)\n";
+  std::cout << "  --dual-medium-ratio RATIO    Medium cache ratio for "
+               "DualRocksDB strategy (default: 0.05)\n";
+  std::cout << "  --dual-disable-compression   Disable compression for "
+               "DualRocksDB strategy\n";
+  std::cout << "  --dual-disable-bloom         Disable bloom filters for "
+               "DualRocksDB strategy\n";
+  std::cout << "\nExamples:\n";
+  std::cout << "  " << program_name
+            << " --strategy dual_rocksdb_adaptive --clean-data\n";
+  std::cout << "  " << program_name
+            << " -s dual_rocksdb_adaptive -i 1000000 -u 100000 -c\n";
+  std::cout << "  " << program_name << " --config benchmark_config.json\n";
 }

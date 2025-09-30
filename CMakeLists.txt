@@ -9,6 +9,8 @@ set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/
 
 find_package(fmt CONFIG REQUIRED)
 find_package(RocksDB CONFIG REQUIRED)
+find_package(CLI11 CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -26,4 +28,16 @@ target_link_libraries(rocksdb_bench_app
         strategies_lib
         RocksDB::rocksdb
         fmt::fmt
+        CLI11::CLI11
+        nlohmann_json::nlohmann_json
+)
+
+# Config generator utility
+add_executable(generate_config_example src/generate_config_example.cpp)
+
+target_link_libraries(generate_config_example
+    PRIVATE
+        core_lib
+        CLI11::CLI11
+        nlohmann_json::nlohmann_json
 )

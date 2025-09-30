@@ -25,6 +25,7 @@
 - **构建工具**: CMake 3.25+
 - **内存**: 建议 8GB 以上
 - **磁盘空间**: 建议 50GB 以上可用空间
+- **依赖管理**: vcpkg (自动安装RocksDB、fmt、CLI11、nlohmann-json)
 
 ### 安装步骤
 
@@ -56,6 +57,12 @@ cd rocksdb_bench
 
 # 使用 DirectVersionStrategy
 ./scripts/run.sh --strategy direct_version --clean
+
+# 使用新的双RocksDB自适应策略
+./scripts/run.sh --strategy dual_rocksdb_adaptive --clean
+
+# 使用JSON配置文件
+./scripts/run.sh --config config.json --clean
 ```
 
 ## 🛠️ 使用方法
@@ -106,8 +113,15 @@ cd rocksdb_bench
 |---------|------|------|
 | `page_index` | 传统的 ChangeSet+Index 表结构 | 成熟稳定，基于页面的索引组织 |
 | `direct_version` | 两层版本索引存储 | 单次查找最新值，版本与数据分离 |
+| `dual_rocksdb_adaptive` | 双RocksDB自适应缓存策略 | 双数据库实例，三级智能缓存，Seek-Last优化 |
+| `simple_keyblock` | 简单键块策略 | 简化的键值存储，适合基础测试 |
+| `reduced_keyblock` | 减少键块策略 | 优化的键块存储，减少内存占用 |
 
 ### 命令行选项
+
+#### 现代化CLI11界面
+
+本项目使用CLI11库提供现代化的命令行界面，支持丰富的配置选项和JSON配置文件。
 
 #### run.sh 支持的选项
 ```bash
@@ -115,16 +129,51 @@ cd rocksdb_bench
 
 选项：
   --db-path PATH             数据库路径（默认：./rocksdb_data）
-  --strategy STRATEGY        存储策略：page_index 或 direct_version（默认：page_index）
+  --strategy STRATEGY        存储策略：page_index, direct_version, dual_rocksdb_adaptive, simple_keyblock, reduced_keyblock（默认：page_index）
   --clean                    清理现有数据后开始
   --initial-records N        初始记录数（默认：100000000）
   --hotspot-updates N        热点更新数（默认：10000000）
+  --config FILE              JSON配置文件路径
   --help, -h                 显示帮助信息
+  --version, -v              显示版本信息
 ```
 
 #### 直接运行可执行文件
 ```bash
-./build/src/rocksdb_bench_app [database_path] --strategy STRATEGY
+# 基础用法
+./build/rocksdb_bench_app [database_path] --strategy STRATEGY
+
+# 完整命令行示例
+./build/rocksdb_bench_app ./data --strategy dual_rocksdb_adaptive --clean --initial-records 1000000 --hotspot-updates 100000
+
+# 使用JSON配置文件
+./build/rocksdb_bench_app ./data --config config.json
+
+# 组合使用：命令行参数会覆盖配置文件中的对应设置
+./build/rocksdb_bench_app ./data --config config.json --initial-records 5000000
+```
+
+#### JSON配置文件格式
+
+支持JSON格式的配置文件，可以方便地管理复杂的测试配置：
+
+```json
+{
+  "database_path": "./rocksdb_data",
+  "storage_strategy": "dual_rocksdb_adaptive",
+  "clean_start": true,
+  "initial_records": 100000000,
+  "hotspot_updates": 10000000,
+  "strategy_config": {
+    "dual_rocksdb_adaptive": {
+      "enable_dynamic_cache": true,
+      "enable_sharding": false,
+      "l1_cache_size_mb": 1024,
+      "l2_cache_size_mb": 2048,
+      "l3_cache_size_mb": 4096
+    }
+  }
+}
 ```
 
 ### 交互式选项

@@ -7,7 +7,7 @@
 // 前向声明策略工厂
 class StorageStrategyFactory;
 
-// 基准配置 - 启动时选择策略
+// 现代化的基准配置 - 使用CLI11
 struct BenchmarkConfig {
     std::string storage_strategy = "page_index";  // 存储策略
     std::string db_path = "./rocksdb_data";        // 数据库路径
@@ -17,12 +17,36 @@ struct BenchmarkConfig {
     bool enable_bloom_filter = true;               // 启用布隆过滤器
     bool clean_existing_data = false;              // 清理现有数据
     
+    // 新增配置选项
+    bool verbose = false;                         // 详细输出
+    std::string config_file;                      // 配置文件路径
+    bool version = false;                         // 显示版本信息
+    size_t thread_count = 1;                      // 线程数
+    std::string log_level = "info";               // 日志级别
+    
+    // DualRocksDB特定配置
+    size_t dual_rocksdb_range_size = 10000;       // 范围大小
+    size_t dual_rocksdb_cache_size = 1024 * 1024 * 1024; // 缓存大小 (1GB)
+    double dual_rocksdb_hot_ratio = 0.01;         // 热缓存比例
+    double dual_rocksdb_medium_ratio = 0.05;       // 中等缓存比例
+    bool dual_rocksdb_compression = true;          // 启用压缩
+    bool dual_rocksdb_bloom_filters = true;       // 启用布隆过滤器
+    
+    // 静态方法
     static BenchmarkConfig from_args(int argc, char* argv[]);
     static BenchmarkConfig from_file(const std::string& config_path);
-    void print_config() const;
-    
-    // 帮助信息
     static void print_help(const std::string& program_name);
+    
+    // 实例方法
+    void print_config() const;
+    void save_to_file(const std::string& config_path) const;
+    
+    // 验证配置
+    bool validate() const;
+    std::vector<std::string> get_validation_errors() const;
+    
+    // 获取策略特定配置
+    std::string get_strategy_config() const;
 };
 
 // 配置解析错误
