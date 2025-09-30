@@ -16,6 +16,9 @@ StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager
 void StrategyScenarioRunner::run_initial_load_phase() {
     utils::log_info("Starting initial load phase...");
     
+    // 启用批量写入模式以优化数据准备阶段的性能
+    db_manager_->set_batch_mode(true);
+    
     const auto& all_keys = data_generator_.get_all_keys();
     const size_t batch_size = 10000;
     size_t total_keys = all_keys.size();
@@ -73,6 +76,9 @@ void StrategyScenarioRunner::run_initial_load_phase() {
 
 void StrategyScenarioRunner::run_hotspot_update_phase() {
     utils::log_info("Starting hotspot update phase...");
+    
+    // 切换到直接写入模式以确保实时一致性
+    db_manager_->set_batch_mode(false);
     
     const auto& all_keys = data_generator_.get_all_keys();
     const size_t batch_size = 10000;

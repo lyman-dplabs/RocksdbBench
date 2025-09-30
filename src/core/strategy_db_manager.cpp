@@ -1,5 +1,6 @@
 #include "strategy_db_manager.hpp"
 #include "../utils/logger.hpp"
+#include "../strategies/dual_rocksdb_strategy.hpp"
 #include <filesystem>
 #include <rocksdb/options.h>
 #include <rocksdb/table_properties.h>
@@ -122,6 +123,26 @@ std::optional<Value> StrategyDBManager::query_historical_value(const std::string
     } catch (const std::exception& e) {
         utils::log_error("Exception during query_historical_value: {}", e.what());
         return std::nullopt;
+    }
+}
+
+void StrategyDBManager::set_batch_mode(bool enable) {
+    if (!is_open_) {
+        utils::log_error("Database is not open");
+        return;
+    }
+
+    try {
+        // Check if strategy supports batch mode (DualRocksDBStrategy specific interface)
+        auto* dual_strategy = dynamic_cast<DualRocksDBStrategy*>(strategy_.get());
+        if (dual_strategy) {
+            dual_strategy->set_batch_mode(enable);
+            utils::log_info("Set batch mode to {} for DualRocksDBStrategy", enable);
+        } else {
+            utils::log_warn("Strategy {} does not support batch mode", strategy_->get_strategy_name());
+        }
+    } catch (const std::exception& e) {
+        utils::log_error("Exception during set_batch_mode: {}", e.what());
     }
 }
 

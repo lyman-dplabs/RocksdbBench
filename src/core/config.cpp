@@ -110,6 +110,23 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
                  "Disable bloom filters for DualRocksDB strategy")
       ->default_val(true);
 
+  dual_group
+      ->add_option("--dual-batch-size", config.dual_rocksdb_batch_size,
+                   "Number of blocks per write batch for DualRocksDB strategy")
+      ->default_val(5)
+      ->check(CLI::PositiveNumber);
+
+  dual_group
+      ->add_option("--dual-max-batch-bytes", config.dual_rocksdb_max_batch_bytes,
+                   "Maximum batch size in bytes for DualRocksDB strategy")
+      ->default_val(128 * 1024 * 1024)
+      ->check(CLI::PositiveNumber);
+
+  dual_group
+      ->add_flag("--dual-disable-batching", config.dual_rocksdb_enable_batching,
+                 "Disable batch writing for DualRocksDB strategy")
+      ->default_val(true);
+
   // 位置参数
   app.add_option("db_path_pos", config.db_path,
                  "Database path (positional argument)")

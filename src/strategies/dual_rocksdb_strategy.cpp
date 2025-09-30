@@ -58,19 +58,16 @@ bool DualRocksDBStrategy::write_batch(rocksdb::DB* db, const std::vector<DataRec
         return false;
     }
     
-    rocksdb::WriteBatch range_batch;
-    rocksdb::WriteBatch data_batch;
+    // 如果没有启用批量写入，直接写入
+    if (!config_.enable_batch_writing) {
+        return write_batch_direct(db, records);
+    }
+    
+    // 批量写入模式
+    std::lock_guard<std::mutex> lock(batch_mutex_);
     
     for (const auto& record : records) {
-        // 计算目标范围
-        uint32_t range_num = calculate_range(record.block_num);
-        
-        // 更新范围索引
-        update_range_index(range_index_db_.get(), record.addr_slot, range_num);
-        
-        // 存储数据（带范围前缀）
-        std::string data_key = build_data_key(range_num, record.addr_slot, record.block_num);
-        data_batch.Put(data_key, record.value);
+        add_to_batch(record);
         
         // 更新访问模式（写入也算访问）
         if (cache_manager_) {
@@ -78,16 +75,9 @@ bool DualRocksDBStrategy::write_batch(rocksdb::DB* db, const std::vector<DataRec
         }
     }
     
-    // 写入两个数据库
-    rocksdb::WriteOptions write_options;
-    write_options.sync = false;
-    
-    auto range_status = range_index_db_->Write(write_options, &range_batch);
-    auto data_status = data_storage_db_->Write(write_options, &data_batch);
-    
-    if (!range_status.ok() || !data_status.ok()) {
-        log_error("Failed to write batch to DualRocksDB: range={} data={}", range_status.ToString(), data_status.ToString());
-        return false;
+    // 检查是否需要刷写批次
+    if (batch_dirty_) {
+        flush_pending_batches();
     }
     
     total_writes_ += records.size();
@@ -233,6 +223,9 @@ std::optional<Value> DualRocksDBStrategy::query_historical_value(rocksdb::DB* db
 }
 
 bool DualRocksDBStrategy::cleanup(rocksdb::DB* db) {
+    // 刷写所有待写入的批次
+    flush_all_batches();
+    
     if (cache_manager_) {
         cache_manager_->clear_all();
     }
@@ -530,4 +523,150 @@ rocksdb::Options DualRocksDBStrategy::get_rocksdb_options(bool is_range_index) c
     }
     
     return options;
+}
+
+// ===== 批量写入实现 =====
+
+bool DualRocksDBStrategy::write_batch_direct(rocksdb::DB* db, const std::vector<DataRecord>& records) {
+    rocksdb::WriteBatch range_batch;
+    rocksdb::WriteBatch data_batch;
+    
+    for (const auto& record : records) {
+        // 计算目标范围
+        uint32_t range_num = calculate_range(record.block_num);
+        
+        // 更新范围索引
+        update_range_index(range_index_db_.get(), record.addr_slot, range_num);
+        
+        // 存储数据（带范围前缀）
+        std::string data_key = build_data_key(range_num, record.addr_slot, record.block_num);
+        data_batch.Put(data_key, record.value);
+    }
+    
+    // 写入两个数据库
+    rocksdb::WriteOptions write_options;
+    write_options.sync = false;
+    
+    auto range_status = range_index_db_->Write(write_options, &range_batch);
+    auto data_status = data_storage_db_->Write(write_options, &data_batch);
+    
+    if (!range_status.ok() || !data_status.ok()) {
+        log_error("Failed to write batch directly to DualRocksDB: range={} data={}", 
+                  range_status.ToString(), data_status.ToString());
+        return false;
+    }
+    
+    return true;
+}
+
+void DualRocksDBStrategy::flush_all_batches() {
+    std::lock_guard<std::mutex> lock(batch_mutex_);
+    if (batch_dirty_) {
+        flush_pending_batches();
+    }
+}
+
+void DualRocksDBStrategy::set_batch_mode(bool enable) {
+    std::lock_guard<std::mutex> lock(batch_mutex_);
+    
+    // 如果从批量模式切换到直接模式，先刷写所有待写入批次
+    if (!enable && batch_dirty_) {
+        flush_pending_batches();
+    }
+    
+    // 动态修改批量写入配置
+    config_.enable_batch_writing = enable;
+    
+    log_info("Batch mode {}", enable ? "enabled" : "disabled");
+}
+
+void DualRocksDBStrategy::add_to_batch(const DataRecord& record) {
+    // 计算目标范围
+    uint32_t range_num = calculate_range(record.block_num);
+    
+    // 更新范围索引（直接更新，不缓存范围索引）
+    std::vector<uint32_t> current_ranges = get_address_ranges(range_index_db_.get(), record.addr_slot);
+    if (std::find(current_ranges.begin(), current_ranges.end(), range_num) == current_ranges.end()) {
+        current_ranges.push_back(range_num);
+        std::string serialized = serialize_range_list(current_ranges);
+        pending_range_batch_.Put(record.addr_slot, serialized);
+    }
+    
+    // 存储数据（带范围前缀）
+    std::string data_key = build_data_key(range_num, record.addr_slot, record.block_num);
+    pending_data_batch_.Put(data_key, record.value);
+    
+    // 更新批次统计
+    size_t record_size = record.value.size() + data_key.size() + 100; // 估算大小
+    current_batch_size_ += record_size;
+    current_batch_blocks_++;
+    batch_dirty_ = true;
+    
+    // 检查是否需要刷写
+    if (should_flush_batch(record_size)) {
+        flush_pending_batches();
+    }
+}
+
+bool DualRocksDBStrategy::should_flush_batch(size_t record_size) const {
+    // 如果当前批次为空，不需要刷写
+    if (current_batch_blocks_ == 0) {
+        return false;
+    }
+    
+    // 检查块数限制
+    if (current_batch_blocks_ >= config_.batch_size_blocks) {
+        return true;
+    }
+    
+    // 检查字节大小限制
+    if (current_batch_size_ >= config_.max_batch_size_bytes) {
+        return true;
+    }
+    
+    // 如果单个记录就超过限制，立即刷写
+    if (record_size > config_.max_batch_size_bytes / 2) {
+        return true;
+    }
+    
+    return false;
+}
+
+void DualRocksDBStrategy::flush_pending_batches() {
+    if (!batch_dirty_ || current_batch_blocks_ == 0) {
+        return;
+    }
+    
+    // 保存批次统计信息用于日志
+    uint32_t blocks_to_flush = current_batch_blocks_;
+    size_t size_to_flush = current_batch_size_;
+    
+    rocksdb::WriteOptions write_options;
+    write_options.sync = false;
+    
+    // 写入范围索引数据库
+    if (pending_range_batch_.Count() > 0) {
+        auto range_status = range_index_db_->Write(write_options, &pending_range_batch_);
+        if (!range_status.ok()) {
+            log_error("Failed to write pending range batch: {}", range_status.ToString());
+        }
+    }
+    
+    // 写入数据存储数据库
+    if (pending_data_batch_.Count() > 0) {
+        auto data_status = data_storage_db_->Write(write_options, &pending_data_batch_);
+        if (!data_status.ok()) {
+            log_error("Failed to write pending data batch: {}", data_status.ToString());
+        }
+    }
+    
+    // 重置批次状态
+    pending_range_batch_.Clear();
+    pending_data_batch_.Clear();
+    current_batch_size_ = 0;
+    current_batch_blocks_ = 0;
+    batch_dirty_ = false;
+    
+    log_debug("Flushed batch: {} blocks, {} MB", 
+              blocks_to_flush, size_to_flush / (1024 * 1024));
 }

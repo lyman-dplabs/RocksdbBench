@@ -39,6 +39,11 @@ private:
         uint64_t expected_key_count = 0;
         bool enable_sharding = false;
         size_t shard_count = 1;
+        
+        // 批量写入配置
+        uint32_t batch_size_blocks = 5;  // 每个WriteBatch写入的块数（默认5个块）
+        size_t max_batch_size_bytes = 128 * 1024 * 1024; // 最大批次大小128MB
+        bool enable_batch_writing = true;  // 启用批量写入
     };
     
 private:
@@ -51,6 +56,14 @@ private:
     
     // 复用DBManager的SST合并效率统计
     // 通过主数据库的statistics_获取compaction指标
+    
+    // 批量写入缓存
+    mutable std::mutex batch_mutex_;
+    mutable rocksdb::WriteBatch pending_range_batch_;
+    mutable rocksdb::WriteBatch pending_data_batch_;
+    mutable size_t current_batch_size_ = 0;
+    mutable uint32_t current_batch_blocks_ = 0;
+    mutable bool batch_dirty_ = false;
     
 public:
     explicit DualRocksDBStrategy(const Config& config);
@@ -74,6 +87,10 @@ public:
     // 配置接口
     void set_config(const Config& config);
     const Config& get_config() const { return config_; }
+    
+    // 批量写入接口
+    void flush_all_batches();  // 强制刷写所有待写入批次
+    void set_batch_mode(bool enable);  // 动态切换批量写入模式
     
     // 统计接口
     uint64_t get_total_reads() const { return total_reads_.load(); }
@@ -125,6 +142,12 @@ private:
     // 内存管理
     void check_memory_pressure();
     void optimize_cache_usage();
+    
+    // 批量写入管理
+    void flush_pending_batches();
+    bool should_flush_batch(size_t record_size) const;
+    void add_to_batch(const DataRecord& record);
+    bool write_batch_direct(rocksdb::DB* db, const std::vector<DataRecord>& records);
     
     // 工具方法
     rocksdb::Options get_rocksdb_options(bool is_range_index = false) const;

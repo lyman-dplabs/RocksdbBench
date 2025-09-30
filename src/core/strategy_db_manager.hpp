@@ -33,6 +33,9 @@ public:
     std::string get_strategy_name() const { return strategy_->get_strategy_name(); }
     std::string get_strategy_description() const { return strategy_->get_description(); }
     
+    // 批量写入模式控制（仅适用于支持批量写入的策略）
+    void set_batch_mode(bool enable);
+    
     // Get RocksDB statistics
     uint64_t get_bloom_filter_hits() const;
     uint64_t get_bloom_filter_misses() const;
