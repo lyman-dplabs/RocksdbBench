@@ -115,10 +115,10 @@ private:
     
         
     // Seek-Last查找优化（核心机制，强制启用）
-    std::optional<BlockNum> find_latest_block_in_range(rocksdb::DB* db, 
-                                                         uint32_t range_num, 
-                                                         const std::string& addr_slot, 
-                                                         BlockNum max_block = UINT64_MAX) const;
+    std::optional<Value> find_latest_block_in_range(rocksdb::DB* db, 
+                                                     uint32_t range_num, 
+                                                     const std::string& addr_slot, 
+                                                     BlockNum max_block = UINT64_MAX) const;
     
     // 范围管理
     bool update_range_index(rocksdb::DB* db, const std::string& addr_slot, uint32_t range_num);
@@ -130,11 +130,6 @@ private:
     bool create_data_storage_db(const std::string& path);
     
     // 辅助方法
-    std::optional<Value> get_value_from_data_db(rocksdb::DB* db, 
-                                                uint32_t range_num, 
-                                                const std::string& addr_slot, 
-                                                BlockNum block_num) const;
-    
     BlockNum extract_block_from_key(const std::string& key) const;
     std::vector<uint32_t> deserialize_range_list(const std::string& data) const;
     std::string serialize_range_list(const std::vector<uint32_t>& ranges) const;

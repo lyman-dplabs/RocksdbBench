@@ -128,26 +128,20 @@ std::optional<Value> DualRocksDBStrategy::query_latest_value(rocksdb::DB* db, co
         
         // 找到最新范围并搜索最新块
         uint32_t latest_range = *std::max_element(ranges.begin(), ranges.end());
-        auto latest_block = find_latest_block_in_range(data_storage_db_.get(), latest_range, addr_slot);
+        auto result = find_latest_block_in_range(data_storage_db_.get(), latest_range, addr_slot);
         
-        if (!latest_block) {
+        if (!result) {
             return std::nullopt;
         }
         
-        // 获取值
-        auto result = get_value_from_data_db(data_storage_db_.get(), latest_range, addr_slot, *latest_block);
-        
-        if (result) {
-            // 根据缓存级别决定是否缓存结果
-            if (level == CacheLevel::HOT) {
-                cache_manager_->cache_hot_data(addr_slot, *result);
-            } else if (level == CacheLevel::PASSIVE) {
-                cache_manager_->cache_passive_data(addr_slot, *result);
-            }
-            
-            cache_hits_++;
+        // 根据缓存级别决定是否缓存结果
+        if (level == CacheLevel::HOT) {
+            cache_manager_->cache_hot_data(addr_slot, *result);
+        } else if (level == CacheLevel::PASSIVE) {
+            cache_manager_->cache_passive_data(addr_slot, *result);
         }
         
+        cache_hits_++;
         return result;
     }
     
@@ -159,13 +153,7 @@ std::optional<Value> DualRocksDBStrategy::query_latest_value(rocksdb::DB* db, co
     
     // 找到最新范围并搜索最新块
     uint32_t latest_range = *std::max_element(ranges.begin(), ranges.end());
-    auto latest_block = find_latest_block_in_range(data_storage_db_.get(), latest_range, addr_slot);
-    
-    if (!latest_block) {
-        return std::nullopt;
-    }
-    
-    return get_value_from_data_db(data_storage_db_.get(), latest_range, addr_slot, *latest_block);
+    return find_latest_block_in_range(data_storage_db_.get(), latest_range, addr_slot);
 }
 
 std::optional<Value> DualRocksDBStrategy::query_historical_value(rocksdb::DB* db, 
@@ -202,24 +190,18 @@ std::optional<Value> DualRocksDBStrategy::query_historical_value(rocksdb::DB* db
         target_range = max_valid_range;
     }
     
-    // 在目标范围内找到 <= target_block 的最大块号
-    auto latest_block = find_latest_block_in_range(data_storage_db_.get(), target_range, addr_slot, target_block);
+    // 在目标范围内找到 <= target_block 的最大值
+    auto result = find_latest_block_in_range(data_storage_db_.get(), target_range, addr_slot, target_block);
     
     // 如果在目标范围内没找到，尝试在之前的范围中查找
-    while (!latest_block && target_range > 0) {
+    while (!result && target_range > 0) {
         target_range--;
         if (std::find(ranges.begin(), ranges.end(), target_range) != ranges.end()) {
-            latest_block = find_latest_block_in_range(data_storage_db_.get(), target_range, addr_slot, target_block);
+            result = find_latest_block_in_range(data_storage_db_.get(), target_range, addr_slot, target_block);
         }
     }
     
-    if (latest_block) {
-        // 找到了符合条件的块，获取其值
-        return get_value_from_data_db(data_storage_db_.get(), target_range, addr_slot, *latest_block);
-    }
-    
-    // 没有找到任何符合条件的值
-    return std::nullopt;
+    return result;
 }
 
 bool DualRocksDBStrategy::cleanup(rocksdb::DB* db) {
@@ -316,7 +298,7 @@ std::string DualRocksDBStrategy::build_data_key(uint32_t range_num, const std::s
 }
 
 
-std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb::DB* db, uint32_t range_num, const std::string& addr_slot, BlockNum max_block) const {
+std::optional<Value> DualRocksDBStrategy::find_latest_block_in_range(rocksdb::DB* db, uint32_t range_num, const std::string& addr_slot, BlockNum max_block) const {
     std::string prefix = "R" + std::to_string(range_num) + "|" + addr_slot + "|";
     
     rocksdb::ReadOptions options;
@@ -336,9 +318,6 @@ std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb:
     // 使用SeekForPrev直接定位到<=target_key的最大key
     it->SeekForPrev(rocksdb::Slice(target_key));
     
-    BlockNum latest_valid_block = 0;
-    bool found = false;
-    
     while (it->Valid()) {
         rocksdb::Slice current_key = it->key();
         std::string_view key_view(current_key.data(), current_key.size());
@@ -347,11 +326,10 @@ std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb:
         if (key_view.substr(0, prefix.length()) == prefix) {
             // 找到了匹配的key，解析block_number
             BlockNum found_block = extract_block_from_key(std::string(key_view));
-            if (found_block <= max_block && found_block > latest_valid_block) {
-                latest_valid_block = found_block;
-                found = true;
-                // 因为是从后向前遍历，第一个找到的就是最大的，可以直接返回
-                return latest_valid_block;
+            if (found_block <= max_block) {
+                // 直接从iterator获取value，避免额外的数据库查询
+                rocksdb::Slice value_slice = it->value();
+                return std::string(value_slice.data(), value_slice.size());
             }
         }
         
@@ -363,22 +341,10 @@ std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb:
         it->Prev();
     }
     
-    return found ? std::optional<BlockNum>(latest_valid_block) : std::nullopt;
-}
-
-
-std::optional<Value> DualRocksDBStrategy::get_value_from_data_db(rocksdb::DB* db, uint32_t range_num, const std::string& addr_slot, BlockNum block_num) const {
-    std::string key = build_data_key(range_num, addr_slot, block_num);
-    
-    std::string value;
-    rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
-    
-    if (status.ok()) {
-        return value;
-    }
-    
     return std::nullopt;
 }
+
+
 
 BlockNum DualRocksDBStrategy::extract_block_from_key(const std::string& key) const {
     size_t last_sep = key.rfind('|');
@@ -666,7 +632,4 @@ void DualRocksDBStrategy::flush_pending_batches() {
     current_batch_size_ = 0;
     current_batch_blocks_ = 0;
     batch_dirty_ = false;
-    
-    log_debug("Flushed batch: {} blocks, {} MB", 
-              blocks_to_flush, size_to_flush / (1024 * 1024));
 }
