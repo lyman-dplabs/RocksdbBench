@@ -1,5 +1,6 @@
-#include "benchmark/scenario_runner.hpp"
-#include "core/db_manager.hpp"
+#include "benchmark/strategy_scenario_runner.hpp"
+#include "core/strategy_db_manager.hpp"
+#include "strategies/strategy_factory.hpp"
 #include "benchmark/metrics_collector.hpp"
 #include "utils/logger.hpp"
 #include <cassert>
@@ -10,12 +11,12 @@ int main() {
     
     std::string db_path = "/tmp/test_quick_keyblock";
     
-    auto db_manager = std::make_shared<DBManager>(db_path);
+    auto strategy = StorageStrategyFactory::create_strategy("page_index");
+    auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     auto metrics_collector = std::make_shared<MetricsCollector>();
-    ScenarioRunner runner(db_manager, metrics_collector);
+    StrategyScenarioRunner runner(db_manager, metrics_collector);
     
     // Clean and open database
-    assert(db_manager->clean_data());
     assert(db_manager->open(true));
     
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -65,7 +66,6 @@ int main() {
     
     // Clean up
     db_manager->close();
-    db_manager->clean_data();
     
     return 0;
 }

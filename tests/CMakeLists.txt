@@ -12,8 +12,6 @@ add_executable(test_index_search test_index_search.cpp)
 add_executable(test_dual_strategy test_dual_strategy.cpp)
 add_executable(test_args test_args.cpp)
 add_executable(test_historical_fix test_historical_fix.cpp)
-add_executable(test_simple_keyblock test_simple_keyblock.cpp)
-add_executable(test_reduced_keyblock test_reduced_keyblock.cpp)
 
 # Common test libraries
 target_link_libraries(test_metrics
@@ -93,22 +91,4 @@ target_link_libraries(test_historical_fix
         fmt::fmt
 )
 
-target_link_libraries(test_simple_keyblock
-    PRIVATE
-        core_lib
-        benchmark_lib
-        utils_lib
-        strategies_lib
-        RocksDB::rocksdb
-        fmt::fmt
-)
 
-target_link_libraries(test_reduced_keyblock
-    PRIVATE
-        core_lib
-        benchmark_lib
-        utils_lib
-        strategies_lib
-        RocksDB::rocksdb
-        fmt::fmt
-)

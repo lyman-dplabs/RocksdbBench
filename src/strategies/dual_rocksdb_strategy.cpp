@@ -183,33 +183,49 @@ std::optional<Value> DualRocksDBStrategy::query_historical_value(rocksdb::DB* db
                                                                    BlockNum target_block) {
     total_reads_++;
     
-    // 获取地址的所有范围，按块号排序
+    // 参考PageIndexStrategy的逻辑：只查询目标范围
+    uint32_t target_range = calculate_range(target_block);
+    
+    // 检查目标范围是否包含该地址的数据
     std::vector<uint32_t> ranges = get_address_ranges(range_index_db_.get(), addr_slot);
     if (ranges.empty()) {
         return std::nullopt;
     }
     
-    // 计算目标范围
-    uint32_t target_range = calculate_range(target_block);
-    
-    // 按范围号排序（从小到大）
-    std::sort(ranges.begin(), ranges.end());
-    
-    // 从目标范围开始，向前查找第一个有修改的范围
-    for (int i = ranges.size() - 1; i >= 0; i--) {
-        uint32_t current_range = ranges[i];
+    // 检查目标范围是否在地址的范围内
+    if (std::find(ranges.begin(), ranges.end(), target_range) == ranges.end()) {
+        // 如果目标范围没有数据，找到小于目标范围的最大范围
+        uint32_t max_valid_range = 0;
+        bool found_range = false;
         
-        // 如果当前范围大于目标范围，跳过（这些是未来的修改）
-        if (current_range > target_range) {
-            continue;
+        for (uint32_t range : ranges) {
+            if (range <= target_range && range > max_valid_range) {
+                max_valid_range = range;
+                found_range = true;
+            }
         }
         
-        // 在当前范围内找到 <= target_block 的最大块号
-        auto latest_block = find_latest_block_in_range(data_storage_db_.get(), current_range, addr_slot, target_block);
-        if (latest_block) {
-            // 找到了符合条件的块，获取其值
-            return get_value_from_data_db(data_storage_db_.get(), current_range, addr_slot, *latest_block);
+        if (!found_range) {
+            return std::nullopt;
         }
+        
+        target_range = max_valid_range;
+    }
+    
+    // 在目标范围内找到 <= target_block 的最大块号
+    auto latest_block = find_latest_block_in_range(data_storage_db_.get(), target_range, addr_slot, target_block);
+    
+    // 如果在目标范围内没找到，尝试在之前的范围中查找
+    while (!latest_block && target_range > 0) {
+        target_range--;
+        if (std::find(ranges.begin(), ranges.end(), target_range) != ranges.end()) {
+            latest_block = find_latest_block_in_range(data_storage_db_.get(), target_range, addr_slot, target_block);
+        }
+    }
+    
+    if (latest_block) {
+        // 找到了符合条件的块，获取其值
+        return get_value_from_data_db(data_storage_db_.get(), target_range, addr_slot, *latest_block);
     }
     
     // 没有找到任何符合条件的值
@@ -296,7 +312,12 @@ uint32_t DualRocksDBStrategy::calculate_range(BlockNum block_num) const {
 }
 
 std::string DualRocksDBStrategy::build_data_key(uint32_t range_num, const std::string& addr_slot, BlockNum block_num) const {
-    return "R" + std::to_string(range_num) + "|" + addr_slot + "|" + std::to_string(block_num);
+    // 使用零填充的数字确保正确的字符串排序
+    // 假设块号最多20位（uint64_t最大值是18446744073709551615，20位）
+    std::string block_str = std::to_string(block_num);
+    block_str.insert(0, 20 - block_str.length(), '0');
+    
+    return "R" + std::to_string(range_num) + "|" + addr_slot + "|" + block_str;
 }
 
 
@@ -306,11 +327,22 @@ std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb:
     rocksdb::ReadOptions options;
     std::unique_ptr<rocksdb::Iterator> it(db->NewIterator(options));
     
-    BlockNum latest_valid_block = 0;
-    bool found_any = false;
+    // 计算当前范围的最大块号，避免传递的max_block超出当前范围
+    BlockNum range_max_block = (range_num + 1) * config_.range_size - 1;
+    BlockNum effective_max_block = std::min(max_block, range_max_block);
     
-    // 遍历整个数据库，找到所有匹配的key
-    for (it->SeekToLast(); it->Valid(); it->Prev()) {
+    // 构造target key: R{range_num}|{addr_slot}|{effective_max_block} (使用零填充)
+    std::string max_block_str = std::to_string(effective_max_block);
+    max_block_str.insert(0, 20 - max_block_str.length(), '0');
+    std::string target_key = prefix + max_block_str;
+    
+    // 使用SeekForPrev直接定位到<=target_key的最大key
+    it->SeekForPrev(rocksdb::Slice(target_key));
+    
+    BlockNum latest_valid_block = 0;
+    bool found = false;
+    
+    while (it->Valid()) {
         rocksdb::Slice current_key = it->key();
         std::string current_key_str = current_key.ToString();
         
@@ -320,21 +352,21 @@ std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb:
             BlockNum found_block = extract_block_from_key(current_key_str);
             if (found_block <= max_block && found_block > latest_valid_block) {
                 latest_valid_block = found_block;
-                found_any = true;
+                found = true;
+                // 因为是从后向前遍历，第一个找到的就是最大的，可以直接返回
+                return latest_valid_block;
             }
         }
         
-        // 如果key已经小于prefix，可以提前退出循环
+        // 如果key已经小于prefix，说明没有更匹配的key了
         if (current_key_str < prefix) {
             break;
         }
+        
+        it->Prev();
     }
     
-    if (found_any) {
-        return latest_valid_block;
-    }
-    
-    return std::nullopt;
+    return found ? std::optional<BlockNum>(latest_valid_block) : std::nullopt;
 }
 
 
@@ -466,6 +498,7 @@ void DualRocksDBStrategy::reclassify_cache_entries() {
         cache_manager_->clear_expired();
     }
 }
+
 
 rocksdb::Options DualRocksDBStrategy::get_rocksdb_options(bool is_range_index) const {
     rocksdb::Options options;

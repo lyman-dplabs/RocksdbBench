@@ -17,6 +17,9 @@ public:
     
     // Get current strategy information
     std::string get_current_strategy() const;
+    
+    // Test helper method
+    void run_historical_queries_test(size_t query_count) { run_historical_queries(query_count); }
 
 private:
     std::shared_ptr<StrategyDBManager> db_manager_;

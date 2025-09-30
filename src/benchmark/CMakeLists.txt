@@ -1,6 +1,4 @@
 add_library(benchmark_lib
-    scenario_runner.hpp
-    scenario_runner.cpp
     strategy_scenario_runner.hpp
     strategy_scenario_runner.cpp
     metrics_collector.hpp

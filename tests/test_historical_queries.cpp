@@ -1,5 +1,6 @@
-#include "benchmark/scenario_runner.hpp"
-#include "core/db_manager.hpp"
+#include "benchmark/strategy_scenario_runner.hpp"
+#include "core/strategy_db_manager.hpp"
+#include "strategies/strategy_factory.hpp"
 #include "benchmark/metrics_collector.hpp"
 #include "utils/logger.hpp"
 #include <cassert>
@@ -10,13 +11,13 @@ void test_historical_query_success_rate() {
     // Create temporary database path
     std::string db_path = "/tmp/test_historical_queries";
     
-    // Initialize components
-    auto db_manager = std::make_shared<DBManager>(db_path);
+    // Initialize components with strategy pattern
+    auto strategy = StorageStrategyFactory::create_strategy("page_index");
+    auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     auto metrics_collector = std::make_shared<MetricsCollector>();
-    ScenarioRunner runner(db_manager, metrics_collector);
+    StrategyScenarioRunner runner(db_manager, metrics_collector);
     
     // Clean and open database
-    assert(db_manager->clean_data());
     assert(db_manager->open(true));
     
     // Run initial load phase with larger dataset for testing
@@ -42,7 +43,6 @@ void test_historical_query_success_rate() {
     
     // Clean up
     db_manager->close();
-    db_manager->clean_data();
     
     utils::log_info("Historical query success rate test passed!");
 }
@@ -52,12 +52,12 @@ void test_bloom_filter_metrics() {
     
     std::string db_path = "/tmp/test_bloom_filter";
     
-    auto db_manager = std::make_shared<DBManager>(db_path);
+    auto strategy = StorageStrategyFactory::create_strategy("page_index");
+    auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     auto metrics_collector = std::make_shared<MetricsCollector>();
-    ScenarioRunner runner(db_manager, metrics_collector);
+    StrategyScenarioRunner runner(db_manager, metrics_collector);
     
     // Clean and open database
-    assert(db_manager->clean_data());
     assert(db_manager->open(true));
     
     // Run initial load to generate data and queries
@@ -79,7 +79,6 @@ void test_bloom_filter_metrics() {
     
     // Clean up
     db_manager->close();
-    db_manager->clean_data();
 }
 
 void test_key_block_pairing() {
@@ -87,12 +86,12 @@ void test_key_block_pairing() {
     
     std::string db_path = "/tmp/test_key_block";
     
-    auto db_manager = std::make_shared<DBManager>(db_path);
+    auto strategy = StorageStrategyFactory::create_strategy("page_index");
+    auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     auto metrics_collector = std::make_shared<MetricsCollector>();
-    ScenarioRunner runner(db_manager, metrics_collector);
+    StrategyScenarioRunner runner(db_manager, metrics_collector);
     
     // Clean and open database
-    assert(db_manager->clean_data());
     assert(db_manager->open(true));
     
     // Run initial load with small dataset
@@ -112,7 +111,6 @@ void test_key_block_pairing() {
     
     // Clean up
     db_manager->close();
-    db_manager->clean_data();
     
     utils::log_info("Key-block pairing test passed!");
 }
@@ -122,12 +120,12 @@ void test_large_keyspace_queries() {
     
     std::string db_path = "/tmp/test_large_keyspace";
     
-    auto db_manager = std::make_shared<DBManager>(db_path);
+    auto strategy = StorageStrategyFactory::create_strategy("page_index");
+    auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     auto metrics_collector = std::make_shared<MetricsCollector>();
-    ScenarioRunner runner(db_manager, metrics_collector);
+    StrategyScenarioRunner runner(db_manager, metrics_collector);
     
     // Clean and open database
-    assert(db_manager->clean_data());
     assert(db_manager->open(true));
     
     // Run initial load phase (this will load 100M keys by default)
@@ -159,7 +157,6 @@ void test_large_keyspace_queries() {
     
     // Clean up
     db_manager->close();
-    db_manager->clean_data();
     
     utils::log_info("Large keyspace test passed!");
 }
