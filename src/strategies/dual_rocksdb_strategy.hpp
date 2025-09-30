@@ -89,11 +89,8 @@ private:
     // Seek-Last查找优化（核心机制，强制启用）
     std::optional<BlockNum> find_latest_block_in_range(rocksdb::DB* db, 
                                                          uint32_t range_num, 
-                                                         const std::string& addr_slot) const;
-    std::optional<BlockNum> find_latest_block_in_range(rocksdb::DB* db, 
-                                                         uint32_t range_num, 
                                                          const std::string& addr_slot, 
-                                                         BlockNum max_block) const;
+                                                         BlockNum max_block = UINT64_MAX) const;
     
     // 范围管理
     bool update_range_index(rocksdb::DB* db, const std::string& addr_slot, uint32_t range_num);

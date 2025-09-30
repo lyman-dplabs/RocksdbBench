@@ -62,7 +62,7 @@ bool DualRocksDBStrategy::write_batch(rocksdb::DB* db, const std::vector<DataRec
         uint32_t range_num = calculate_range(record.block_num);
         
         // 更新范围索引
-        update_range_index(db, record.addr_slot, range_num);
+        update_range_index(range_index_db_.get(), record.addr_slot, range_num);
         
         // 存储数据（带范围前缀）
         std::string data_key = build_data_key(range_num, record.addr_slot, record.block_num);
@@ -243,48 +243,49 @@ uint32_t DualRocksDBStrategy::calculate_range(BlockNum block_num) const {
 }
 
 std::string DualRocksDBStrategy::build_data_key(uint32_t range_num, const std::string& addr_slot, BlockNum block_num) const {
-    return "R" + std::to_string(range_num) + "|" + addr_slot + "|B" + std::to_string(block_num);
+    return "R" + std::to_string(range_num) + "|" + addr_slot + "|" + std::to_string(block_num);
 }
 
-std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb::DB* db, uint32_t range_num, const std::string& addr_slot) const {
-    std::string prefix = "R" + std::to_string(range_num) + "|" + addr_slot + "|B";
-    
-    // 使用seek_last找到最新块
-    rocksdb::ReadOptions options;
-    rocksdb::Iterator* it = db->NewIterator(options);
-    
-    std::string end_key = prefix + "FFFFFFFF";
-    it->SeekForPrev(end_key);
-    
-    std::optional<BlockNum> result;
-    if (it->Valid() && it->key().starts_with(prefix)) {
-        result = extract_block_from_key(it->key().ToString());
-    }
-    
-    delete it;
-    return result;
-}
 
 std::optional<BlockNum> DualRocksDBStrategy::find_latest_block_in_range(rocksdb::DB* db, uint32_t range_num, const std::string& addr_slot, BlockNum max_block) const {
-    std::string prefix = "R" + std::to_string(range_num) + "|" + addr_slot + "|B";
+    std::string prefix = "R" + std::to_string(range_num) + "|" + addr_slot + "|";
+    
+    // 构造目标key，类似DirectVersionStrategy的version_key
+    std::string target_key = prefix + std::to_string(max_block);
     
     rocksdb::ReadOptions options;
-    rocksdb::Iterator* it = db->NewIterator(options);
+    std::unique_ptr<rocksdb::Iterator> it(db->NewIterator(options));
     
-    // 构造最大可能的key
-    std::string max_key = prefix + std::to_string(max_block);
-    it->SeekForPrev(max_key);
+    // 使用SeekForPrev找到<=target_key的最大key
+    it->SeekForPrev(target_key);
     
-    std::optional<BlockNum> result;
-    if (it->Valid() && it->key().starts_with(prefix)) {
-        BlockNum found_block = extract_block_from_key(it->key().ToString());
-        if (found_block <= max_block) {
-            result = found_block;
-        }
+    // 如果seek超出了范围，从最后一个开始
+    if (!it->Valid()) {
+        it->SeekToLast();
     }
     
-    delete it;
-    return result;
+    while (it->Valid()) {
+        rocksdb::Slice current_key = it->key();
+        std::string current_key_str = current_key.ToString();
+        
+        // 检查key是否以正确的prefix开头
+        if (current_key_str.find(prefix) == 0) {
+            // 找到了匹配的key，解析block_number
+            BlockNum found_block = extract_block_from_key(current_key_str);
+            if (found_block <= max_block) {
+                return found_block;
+            }
+        }
+        
+        // 如果key已经小于prefix，说明没有找到
+        if (current_key_str < prefix) {
+            break;
+        }
+        
+        it->Prev();
+    }
+    
+    return std::nullopt;
 }
 
 std::optional<Value> DualRocksDBStrategy::get_value_from_data_db(rocksdb::DB* db, uint32_t range_num, const std::string& addr_slot, BlockNum block_num) const {
