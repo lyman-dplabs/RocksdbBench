@@ -25,6 +25,9 @@ public:
     std::optional<Value> query_latest_value(const std::string& addr_slot);
     std::optional<Value> query_historical_value(const std::string& addr_slot, BlockNum target_block);
     
+    // Initial Load专用接口 - 优化首次导入性能
+    bool write_initial_load_batch(const std::vector<DataRecord>& records);
+    
     // 兼容现有接口 - 用于PageIndexStrategy
     bool write_batch(const std::vector<ChangeSetRecord>& changes, const std::vector<IndexRecord>& indices);
     std::optional<Value> get_historical_state(const std::string& addr_slot, BlockNum target_block_num);

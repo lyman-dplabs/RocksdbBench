@@ -126,6 +126,15 @@ std::optional<Value> StrategyDBManager::query_historical_value(const std::string
     }
 }
 
+bool StrategyDBManager::write_initial_load_batch(const std::vector<DataRecord>& records) {
+    if (!is_open_) {
+        utils::log_error("Database is not open");
+        return false;
+    }
+
+    return strategy_->write_initial_load_batch(db_.get(), records);
+}
+
 void StrategyDBManager::set_batch_mode(bool enable) {
     if (!is_open_) {
         utils::log_error("Database is not open");

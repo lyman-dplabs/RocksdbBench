@@ -52,6 +52,11 @@ StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager
 void StrategyScenarioRunner::run_initial_load_phase() {
     utils::log_info("Starting initial load phase...");
     
+    // 检查是否使用优化的Initial Load接口
+    if (db_manager_->get_strategy_name() == "dual_rocksdb_adaptive") {
+        utils::log_info("Using optimized initial load interface for DualRocksDB strategy");
+    }
+    
     // DEBUG: 验证实际的数据大小
     const auto& all_keys = data_generator_->get_all_keys();
     utils::log_info("=== ACTUAL DATA VERIFICATION ===");
@@ -97,7 +102,7 @@ void StrategyScenarioRunner::run_initial_load_phase() {
         }
         
         metrics_collector_->start_write_timer();
-        bool success = db_manager_->write_batch(records);
+        bool success = db_manager_->write_initial_load_batch(records);
         metrics_collector_->stop_and_record_write(records.size(), 
                                                  records.size() * (32 + all_keys[0].size()));
         

@@ -27,6 +27,12 @@ public:
     virtual bool write_batch(rocksdb::DB* db, 
                            const std::vector<DataRecord>& records) = 0;
     
+    // Initial Load专用接口 - 优化首次导入性能，默认调用write_batch
+    virtual bool write_initial_load_batch(rocksdb::DB* db, 
+                                        const std::vector<DataRecord>& records) {
+        return write_batch(db, records);
+    }
+    
     // 查询最新值
     virtual std::optional<Value> query_latest_value(rocksdb::DB* db, 
                                                    const std::string& addr_slot) = 0;

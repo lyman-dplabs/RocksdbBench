@@ -79,6 +79,9 @@ public:
                                                const std::string& addr_slot, 
                                                BlockNum target_block) override;
     
+    // Initial Load专用接口 - 优化首次导入性能
+    bool write_initial_load_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) override;
+    
     std::string get_strategy_name() const override { return "dual_rocksdb_adaptive"; }
     std::string get_description() const override { 
         return "双RocksDB范围分区存储，具有自适应内存管理"; 
@@ -145,6 +148,10 @@ private:
     bool should_flush_batch(size_t record_size) const;
     void add_to_batch(const DataRecord& record);
     bool write_batch_direct(rocksdb::DB* db, const std::vector<DataRecord>& records);
+    
+    // Initial Load辅助方法
+    void add_to_initial_load_batch(const DataRecord& record);
+    bool write_initial_load_direct(rocksdb::DB* db, const std::vector<DataRecord>& records);
     
     // 工具方法
     rocksdb::Options get_rocksdb_options(bool is_range_index = false) const;
