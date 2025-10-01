@@ -13,6 +13,6 @@ if [ ! -f "vcpkg/vcpkg" ]; then
 fi
 
 echo "Installing dependencies..."
-./vcpkg/vcpkg install rocksdb fmt cli11 nlohmann-json
+./vcpkg/vcpkg install rocksdb fmt cli11 nlohmann-json spdlog
 
 echo "Setup completed successfully!"

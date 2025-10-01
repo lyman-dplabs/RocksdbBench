@@ -7,4 +7,5 @@ add_library(utils_lib
 target_link_libraries(utils_lib
     PUBLIC
         fmt::fmt
+        spdlog::spdlog
 )
