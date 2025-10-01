@@ -10,6 +10,8 @@ add_executable(test_dual_strategy test_dual_strategy.cpp)
 add_executable(test_args test_args.cpp)
 add_executable(test_historical_fix test_historical_fix.cpp)
 add_executable(test_random_value_generation test_random_value_generation.cpp)
+add_executable(test_initial_load_optimization test_initial_load_optimization.cpp)
+add_executable(test_performance_comparison test_performance_comparison.cpp)
 
 # Common test libraries
 target_link_libraries(test_historical_queries
@@ -64,6 +66,26 @@ target_link_libraries(test_historical_fix
 target_link_libraries(test_random_value_generation
     PRIVATE
         utils_lib
+)
+
+target_link_libraries(test_initial_load_optimization
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
+)
+
+target_link_libraries(test_performance_comparison
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
 )
 
 
