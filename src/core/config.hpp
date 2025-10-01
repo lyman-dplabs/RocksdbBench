@@ -7,6 +7,9 @@
 // 前向声明策略工厂
 class StorageStrategyFactory;
 
+// 版本信息打印函数声明
+void print_version_info();
+
 // 现代化的基准配置 - 使用CLI11
 struct BenchmarkConfig {
     std::string storage_strategy = "page_index";  // 存储策略
@@ -19,6 +22,7 @@ struct BenchmarkConfig {
     
     // 配置选项
     bool verbose = false;                         // 详细输出
+    bool version = false;                         // 显示版本信息
     
     // DualRocksDB特定配置
     size_t dual_rocksdb_range_size = 10000;       // 范围大小

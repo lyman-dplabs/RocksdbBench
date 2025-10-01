@@ -300,7 +300,21 @@ The CLI11 integration provides several modern command line interface features:
 2. **Version Information**
    ```bash
    ./scripts/run.sh --version
-   # Shows application version and build information
+   # Shows detailed build information including Git commit, branch, build time
+   ```
+   
+   **Version output example:**
+   ```
+   RocksDB Benchmark Tool
+   =======================
+   Version: 1.0.0
+   Git Commit: 11f23c6
+   Git Branch: master
+   Git Date: 2025-10-01
+   Build Time: 2025-10-01 12:44:18
+   
+   Build System: CMake + vcpkg
+   Compiler: C++23
    ```
 
 3. **Configuration File Validation**

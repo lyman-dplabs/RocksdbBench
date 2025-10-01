@@ -48,6 +48,7 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
 
   app.add_flag("-v,--verbose", config.verbose, "Enable verbose output");
 
+  
   // DualRocksDB特定配置
   auto *dual_group = app.add_option_group(
       "DualRocksDB Options",
@@ -107,7 +108,10 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
 
   // 设置帮助信息格式
   app.set_help_flag("-h,--help", "Show help message");
-  app.set_version_flag("--version", "1.0.0");
+  
+  // 自定义版本选项
+  bool version_flag = false;
+  app.add_flag("--version", version_flag, "Show version information");
 
   // 验证回调
   app.callback([&config]() {
@@ -123,6 +127,12 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
   try {
     // 使用CLI11_PARSE_AND_THROW，如果失败会抛出异常
     app.parse(argc, argv);
+
+    // 检查版本标志
+    if (version_flag) {
+      print_version_info();
+      std::exit(0);
+    }
 
     // 配置文件功能暂时禁用，因为实现不完整
     // if (!config.config_file.empty()) {

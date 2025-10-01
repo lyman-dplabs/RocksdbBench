@@ -28,11 +28,11 @@ bool handle_existing_data(const std::string& db_path) {
 }
 
 int main(int argc, char* argv[]) {
-    utils::log_info("RocksDB Benchmark Tool Starting...");
-    
     try {
         // Parse configuration from command line arguments
         auto config = BenchmarkConfig::from_args(argc, argv);
+        
+        utils::log_info("RocksDB Benchmark Tool Starting...");
         config.print_config();
         
         // Create the storage strategy based on configuration
