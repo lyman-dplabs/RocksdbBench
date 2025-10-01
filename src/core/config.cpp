@@ -48,6 +48,9 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
 
   app.add_flag("-v,--verbose", config.verbose, "Enable verbose output");
 
+  app.add_flag("--enable-compression", config.enable_compression,
+               "Enable compression for all strategies that support it");
+
   
   // DualRocksDB特定配置
   auto *dual_group = app.add_option_group(
@@ -78,16 +81,7 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
       ->default_val(0.05)
       ->check(CLI::Range(0.0, 1.0));
 
-  dual_group
-      ->add_flag("--dual-disable-compression", config.dual_rocksdb_compression,
-                 "Disable compression for DualRocksDB strategy")
-      ->default_val(true);
-
-  dual_group
-      ->add_flag("--dual-disable-bloom", config.dual_rocksdb_bloom_filters,
-                 "Disable bloom filters for DualRocksDB strategy")
-      ->default_val(true);
-
+  
   dual_group
       ->add_option("--dual-batch-size", config.dual_rocksdb_batch_size,
                    "Number of blocks per write batch for DualRocksDB strategy")
@@ -186,6 +180,8 @@ BenchmarkConfig BenchmarkConfig::from_file(const std::string &config_path) {
         config.hotspot_updates = bench["hotspot_updates"].get<size_t>();
       if (bench.contains("enable_bloom_filter"))
         config.enable_bloom_filter = bench["enable_bloom_filter"].get<bool>();
+      if (bench.contains("enable_compression"))
+        config.enable_compression = bench["enable_compression"].get<bool>();
       if (bench.contains("clean_existing_data"))
         config.clean_existing_data = bench["clean_existing_data"].get<bool>();
       if (bench.contains("verbose"))
@@ -202,10 +198,6 @@ BenchmarkConfig BenchmarkConfig::from_file(const std::string &config_path) {
         config.dual_rocksdb_hot_ratio = dual["hot_ratio"].get<double>();
       if (dual.contains("medium_ratio"))
         config.dual_rocksdb_medium_ratio = dual["medium_ratio"].get<double>();
-      if (dual.contains("compression"))
-        config.dual_rocksdb_compression = dual["compression"].get<bool>();
-      if (dual.contains("bloom_filters"))
-        config.dual_rocksdb_bloom_filters = dual["bloom_filters"].get<bool>();
     }
 
     return config;
@@ -224,15 +216,14 @@ void BenchmarkConfig::save_to_file(const std::string &config_path) const {
                     {"initial_records", initial_records},
                     {"hotspot_updates", hotspot_updates},
                     {"enable_bloom_filter", enable_bloom_filter},
+                    {"enable_compression", enable_compression},
                     {"clean_existing_data", clean_existing_data},
                     {"verbose", verbose}};
 
   j["dual_rocksdb"] = {{"range_size", dual_rocksdb_range_size},
                        {"cache_size", dual_rocksdb_cache_size},
                        {"hot_ratio", dual_rocksdb_hot_ratio},
-                       {"medium_ratio", dual_rocksdb_medium_ratio},
-                       {"compression", dual_rocksdb_compression},
-                       {"bloom_filters", dual_rocksdb_bloom_filters}};
+                       {"medium_ratio", dual_rocksdb_medium_ratio}};
 
   std::ofstream file(config_path);
   if (!file.is_open()) {
@@ -250,6 +241,8 @@ void BenchmarkConfig::print_config() const {
   utils::log_info("Hotspot Updates: {}", hotspot_updates);
   utils::log_info("Bloom Filter: {}",
                   enable_bloom_filter ? "Enabled" : "Disabled");
+  utils::log_info("Compression: {}",
+                  enable_compression ? "Enabled" : "Disabled");
   utils::log_info("Clean Existing Data: {}",
                   clean_existing_data ? "Yes" : "No");
   utils::log_info("Verbose Output: {}", verbose ? "Yes" : "No");
@@ -262,10 +255,7 @@ void BenchmarkConfig::print_config() const {
     utils::log_info("  Hot Cache Ratio: {:.2f}%", dual_rocksdb_hot_ratio * 100);
     utils::log_info("  Medium Cache Ratio: {:.2f}%",
                     dual_rocksdb_medium_ratio * 100);
-    utils::log_info("  Compression: {}",
-                    dual_rocksdb_compression ? "Enabled" : "Disabled");
-    utils::log_info("  Bloom Filters: {}",
-                    dual_rocksdb_bloom_filters ? "Enabled" : "Disabled");
+    utils::log_info("  Bloom Filters: Always Enabled (Optimized)");
   }
 
   utils::log_info("==============================");
@@ -310,8 +300,8 @@ std::string BenchmarkConfig::get_strategy_config() const {
         << ",cache_size=" << dual_rocksdb_cache_size
         << ",hot_ratio=" << dual_rocksdb_hot_ratio
         << ",medium_ratio=" << dual_rocksdb_medium_ratio << ",compression="
-        << (dual_rocksdb_compression ? "enabled" : "disabled")
-        << ",bloom=" << (dual_rocksdb_bloom_filters ? "enabled" : "disabled");
+        << (enable_compression ? "enabled" : "disabled")
+        << ",bloom=always_enabled";
   }
 
   return oss.str();
@@ -332,6 +322,7 @@ void BenchmarkConfig::print_help(const std::string &program_name) {
       << "  -c,--clean-data              Clean existing data before starting\n";
   std::cout << "  -v,--verbose                 Enable verbose output\n";
   std::cout << "  --disable-bloom-filter       Disable bloom filter\n";
+  std::cout << "  --enable-compression        Enable compression for all strategies\n";
   std::cout << "  -h,--help                    Show this help message\n";
   std::cout << "  --version                    Show version information\n";
   std::cout << "\nDualRocksDB Options:\n";
@@ -343,10 +334,6 @@ void BenchmarkConfig::print_help(const std::string &program_name) {
                "strategy (default: 0.01)\n";
   std::cout << "  --dual-medium-ratio RATIO    Medium cache ratio for "
                "DualRocksDB strategy (default: 0.05)\n";
-  std::cout << "  --dual-disable-compression   Disable compression for "
-               "DualRocksDB strategy\n";
-  std::cout << "  --dual-disable-bloom         Disable bloom filters for "
-               "DualRocksDB strategy\n";
   std::cout << "\nExamples:\n";
   std::cout << "  " << program_name
             << " --strategy dual_rocksdb_adaptive --clean-data\n";

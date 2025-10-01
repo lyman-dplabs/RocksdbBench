@@ -52,8 +52,8 @@ int main(int argc, char* argv[]) {
         utils::log_info("  dual_rocksdb_cache_size: {} MB", config.dual_rocksdb_cache_size / (1024 * 1024));
         utils::log_info("  dual_rocksdb_hot_ratio: {:.3f} ({:.1f}%)", config.dual_rocksdb_hot_ratio, config.dual_rocksdb_hot_ratio * 100);
         utils::log_info("  dual_rocksdb_medium_ratio: {:.3f} ({:.1f}%)", config.dual_rocksdb_medium_ratio, config.dual_rocksdb_medium_ratio * 100);
-        utils::log_info("  dual_rocksdb_compression: {}", config.dual_rocksdb_compression ? "true" : "false");
-        utils::log_info("  dual_rocksdb_bloom_filters: {}", config.dual_rocksdb_bloom_filters ? "true" : "false");
+        utils::log_info("  dual_rocksdb_compression: {}", config.enable_compression ? "true" : "false");
+        utils::log_info("  dual_rocksdb_bloom_filters: always enabled");
         utils::log_info("  dual_rocksdb_batch_size: {}", config.dual_rocksdb_batch_size);
         utils::log_info("  dual_rocksdb_max_batch_bytes: {} MB", config.dual_rocksdb_max_batch_bytes / (1024 * 1024));
         utils::log_info("=== END CONFIGURATION VERIFICATION ===");

@@ -36,8 +36,8 @@ StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager
         utils::log_info("  dual_rocksdb_cache_size: {} MB", config_.dual_rocksdb_cache_size / (1024 * 1024));
         utils::log_info("  dual_rocksdb_hot_ratio: {:.3f}", config_.dual_rocksdb_hot_ratio);
         utils::log_info("  dual_rocksdb_medium_ratio: {:.3f}", config_.dual_rocksdb_medium_ratio);
-        utils::log_info("  dual_rocksdb_compression: {}", config_.dual_rocksdb_compression ? "true" : "false");
-        utils::log_info("  dual_rocksdb_bloom_filters: {}", config_.dual_rocksdb_bloom_filters ? "true" : "false");
+        utils::log_info("  enable_compression (global): {}", config_.enable_compression ? "true" : "false");
+        utils::log_info("  bloom_filters: always enabled");
         utils::log_info("  dual_rocksdb_batch_size: {}", config_.dual_rocksdb_batch_size);
         utils::log_info("  dual_rocksdb_max_batch_bytes: {} MB", config_.dual_rocksdb_max_batch_bytes / (1024 * 1024));
         utils::log_info("=== END DUALROCKSDB CONFIG VERIFICATION ===");

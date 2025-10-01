@@ -8,16 +8,12 @@
 // 策略工厂类
 class StorageStrategyFactory {
 public:
-    // 创建策略实例
-    static std::unique_ptr<IStorageStrategy> create_strategy(const std::string& strategy_type);
-    
-    // 创建策略实例（带配置）
+    // 创建策略实例（统一使用配置）
     static std::unique_ptr<IStorageStrategy> create_strategy(const std::string& strategy_type, const BenchmarkConfig& config);
     
     // 具体策略创建方法
-    static std::unique_ptr<IStorageStrategy> create_page_index_strategy();
-    static std::unique_ptr<IStorageStrategy> create_direct_version_strategy();
-    static std::unique_ptr<IStorageStrategy> create_dual_rocksdb_strategy();
+    static std::unique_ptr<IStorageStrategy> create_page_index_strategy(const BenchmarkConfig& config);
+    static std::unique_ptr<IStorageStrategy> create_direct_version_strategy(const BenchmarkConfig& config);
     static std::unique_ptr<IStorageStrategy> create_dual_rocksdb_strategy(const BenchmarkConfig& config);
     
     // 获取可用策略列表

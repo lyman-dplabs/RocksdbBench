@@ -23,14 +23,13 @@ struct BenchmarkConfig {
     // 配置选项
     bool verbose = false;                         // 详细输出
     bool version = false;                         // 显示版本信息
+    bool enable_compression = false;              // 全局压缩设置（影响所有策略）
     
     // DualRocksDB特定配置
     size_t dual_rocksdb_range_size = 10000;       // 范围大小
     size_t dual_rocksdb_cache_size = 1024 * 1024 * 1024; // 缓存大小 (1GB)
     double dual_rocksdb_hot_ratio = 0.01;         // 热缓存比例
     double dual_rocksdb_medium_ratio = 0.05;       // 中等缓存比例
-    bool dual_rocksdb_compression = true;          // 启用压缩
-    bool dual_rocksdb_bloom_filters = true;       // 启用布隆过滤器
     uint32_t dual_rocksdb_batch_size = 5;          // 每个WriteBatch写入的块数
     size_t dual_rocksdb_max_batch_bytes = 128 * 1024 * 1024; // 最大批次大小128MB
     

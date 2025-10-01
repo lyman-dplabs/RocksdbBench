@@ -23,7 +23,8 @@ int main() {
         
         // Test creating the dual rocksdb strategy
         std::cout << "\nCreating DualRocksDBStrategy..." << std::endl;
-        auto dual_strategy = StorageStrategyFactory::create_strategy("dual_rocksdb_adaptive");
+        BenchmarkConfig test_config;
+        auto dual_strategy = StorageStrategyFactory::create_strategy("dual_rocksdb_adaptive", test_config);
         if (!dual_strategy) {
             std::cout << "✗ Failed to create DualRocksDBStrategy" << std::endl;
             return 1;
