@@ -11,6 +11,7 @@
 #include <chrono>
 #include <mutex>
 #include <atomic>
+#include <functional>
 
 using BlockNum = uint64_t;
 using Value = std::string;
@@ -147,11 +148,17 @@ private:
     void flush_pending_batches();
     bool should_flush_batch(size_t record_size) const;
     void add_to_batch(const DataRecord& record);
-    bool write_batch_direct(rocksdb::DB* db, const std::vector<DataRecord>& records);
+    
+    // 批量写入通用方法
+    void process_record_for_batch(const DataRecord& record, rocksdb::WriteBatch& range_batch, rocksdb::WriteBatch& data_batch, bool is_initial_load);
+    bool execute_batch_write(rocksdb::WriteBatch& range_batch, rocksdb::WriteBatch& data_batch, const char* operation_name);
+    
+    // 批量写入通用模板
+    bool write_batch_with_processor(rocksdb::DB* db, const std::vector<DataRecord>& records, 
+                                   std::function<void(const DataRecord&)> processor);
     
     // Initial Load辅助方法
     void add_to_initial_load_batch(const DataRecord& record);
-    bool write_initial_load_direct(rocksdb::DB* db, const std::vector<DataRecord>& records);
     
     // 工具方法
     rocksdb::Options get_rocksdb_options(bool is_range_index = false) const;
