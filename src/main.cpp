@@ -35,8 +35,31 @@ int main(int argc, char* argv[]) {
         utils::log_info("RocksDB Benchmark Tool Starting...");
         config.print_config();
         
+        // 全面的配置验证
+        utils::log_info("=== COMPREHENSIVE CONFIGURATION VERIFICATION ===");
+        utils::log_info("Basic Options:");
+        utils::log_info("  storage_strategy: '{}'", config.storage_strategy);
+        utils::log_info("  db_path: '{}'", config.db_path);
+        utils::log_info("  initial_records: {}", config.initial_records);
+        utils::log_info("  hotspot_updates: {}", config.hotspot_updates);
+        utils::log_info("  enable_bloom_filter: {}", config.enable_bloom_filter ? "true" : "false");
+        utils::log_info("  clean_existing_data: {}", config.clean_existing_data ? "true" : "false");
+        utils::log_info("  verbose: {}", config.verbose ? "true" : "false");
+        utils::log_info("  version: {}", config.version ? "true" : "false");
+        
+        utils::log_info("DualRocksDB Options:");
+        utils::log_info("  dual_rocksdb_range_size: {}", config.dual_rocksdb_range_size);
+        utils::log_info("  dual_rocksdb_cache_size: {} MB", config.dual_rocksdb_cache_size / (1024 * 1024));
+        utils::log_info("  dual_rocksdb_hot_ratio: {:.3f} ({:.1f}%)", config.dual_rocksdb_hot_ratio, config.dual_rocksdb_hot_ratio * 100);
+        utils::log_info("  dual_rocksdb_medium_ratio: {:.3f} ({:.1f}%)", config.dual_rocksdb_medium_ratio, config.dual_rocksdb_medium_ratio * 100);
+        utils::log_info("  dual_rocksdb_compression: {}", config.dual_rocksdb_compression ? "true" : "false");
+        utils::log_info("  dual_rocksdb_bloom_filters: {}", config.dual_rocksdb_bloom_filters ? "true" : "false");
+        utils::log_info("  dual_rocksdb_batch_size: {}", config.dual_rocksdb_batch_size);
+        utils::log_info("  dual_rocksdb_max_batch_bytes: {} MB", config.dual_rocksdb_max_batch_bytes / (1024 * 1024));
+        utils::log_info("=== END CONFIGURATION VERIFICATION ===");
+        
         // Create the storage strategy based on configuration
-        auto strategy = StorageStrategyFactory::create_strategy(config.storage_strategy);
+        auto strategy = StorageStrategyFactory::create_strategy(config.storage_strategy, config);
         
         auto db_manager = std::make_shared<StrategyDBManager>(config.db_path, std::move(strategy));
         auto metrics_collector = std::make_shared<MetricsCollector>();
@@ -60,7 +83,7 @@ int main(int argc, char* argv[]) {
         utils::log_info("Database opened successfully at: {} with strategy: {}", 
                        config.db_path, config.storage_strategy);
         
-        StrategyScenarioRunner runner(db_manager, metrics_collector);
+        StrategyScenarioRunner runner(db_manager, metrics_collector, config);
         
         utils::log_info("Starting benchmark...");
         

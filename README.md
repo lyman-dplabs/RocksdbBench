@@ -137,7 +137,7 @@ cd rocksdb_bench
   --dual-batch-size N        DualRocksDB批量写入块数（默认：5个块，设为1可禁用攒批）
   --dual-max-batch-bytes N   DualRocksDB最大批次大小（默认：128MB）
   --help, -h                 显示帮助信息
-  --version, -v              显示版本信息
+  --version, -v              显示版本信息（包括Git提交、分支、构建时间等）
 ```
 
 #### 直接运行可执行文件
@@ -153,7 +153,41 @@ cd rocksdb_bench
 
 # 组合使用：命令行参数会覆盖配置文件中的对应设置
 ./build/rocksdb_bench_app ./data --config config.json --initial-records 5000000
+
+# 查看版本信息
+./build/rocksdb_bench_app --version
 ```
+
+#### 版本信息输出
+
+使用 `--version` 选项可以查看详细的编译信息：
+
+```bash
+./build/rocksdb_bench_app --version
+```
+
+输出示例：
+```
+RocksDB Benchmark Tool
+=======================
+Version: 1.0.0
+Git Commit: 11f23c6
+Git Branch: master
+Git Date: 2025-10-01
+Build Time: 2025-10-01 12:44:18
+
+Build System: CMake + vcpkg
+Compiler: C++23
+```
+
+**版本信息包括**：
+- **版本号**: 当前工具的版本
+- **Git提交哈希**: 编译时的Git提交ID
+- **Git分支**: 编译时的Git分支名
+- **Git提交日期**: 最后一次提交的日期
+- **构建时间**: 二进制文件的编译时间
+- **构建系统**: 使用的构建工具和依赖管理系统
+- **编译器版本**: 使用的C++标准
 
 #### JSON配置文件格式
 

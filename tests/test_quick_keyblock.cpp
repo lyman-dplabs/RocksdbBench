@@ -1,5 +1,6 @@
 #include "benchmark/strategy_scenario_runner.hpp"
 #include "core/strategy_db_manager.hpp"
+#include "core/config.hpp"
 #include "strategies/strategy_factory.hpp"
 #include "benchmark/metrics_collector.hpp"
 #include "utils/logger.hpp"
@@ -11,10 +12,14 @@ int main() {
     
     std::string db_path = "/tmp/test_quick_keyblock";
     
-    auto strategy = StorageStrategyFactory::create_strategy("page_index");
+    BenchmarkConfig test_config;
+    test_config.initial_records = 100000;  // 100K records for testing
+    test_config.hotspot_updates = 10000;   // 10K updates for testing
+    
+    auto strategy = StorageStrategyFactory::create_strategy("page_index", test_config);
     auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     auto metrics_collector = std::make_shared<MetricsCollector>();
-    StrategyScenarioRunner runner(db_manager, metrics_collector);
+    StrategyScenarioRunner runner(db_manager, metrics_collector, test_config);
     
     // Clean and open database
     assert(db_manager->open(true));

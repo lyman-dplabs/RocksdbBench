@@ -33,6 +33,32 @@ std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_strategy(
     throw std::runtime_error("Unknown storage strategy: " + strategy_type);
 }
 
+// 带配置的策略创建方法
+std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_strategy(
+    const std::string& strategy_type, const BenchmarkConfig& config) {
+    
+    std::string normalized_type = strategy_type;
+    // 转换为小写以支持大小写不敏感
+    std::transform(normalized_type.begin(), normalized_type.end(), 
+                  normalized_type.begin(), ::tolower);
+    
+    if (normalized_type == "page_index" || normalized_type == "pageindex") {
+        return create_page_index_strategy();
+    } else if (normalized_type == "direct_version" || normalized_type == "directversion") {
+        return create_direct_version_strategy();
+    } else if (normalized_type == "dual_rocksdb_adaptive" || normalized_type == "dualrocksdbadaptive") {
+        return create_dual_rocksdb_strategy(config);
+    } else if (normalized_type == "simple_keyblock" || normalized_type == "simplekeyblock") {
+        // TODO: 实现SimpleKeyBlockStrategy
+        throw std::runtime_error("Strategy 'simple_keyblock' not yet implemented");
+    } else if (normalized_type == "reduced_keyblock" || normalized_type == "reducedkeyblock") {
+        // TODO: 实现ReducedKeyBlockStrategy
+        throw std::runtime_error("Strategy 'reduced_keyblock' not yet implemented");
+    }
+    
+    throw std::runtime_error("Unknown storage strategy: " + strategy_type);
+}
+
 std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_page_index_strategy() {
     // 创建PageIndexStrategy，设置merge callback
     auto strategy = std::make_unique<PageIndexStrategy>(nullptr);
@@ -46,6 +72,32 @@ std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_direct_version_
 std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_dual_rocksdb_strategy() {
     DualRocksDBStrategy::Config config;
     // 使用默认配置，可以根据需要从命令行参数或配置文件读取
+    return std::make_unique<DualRocksDBStrategy>(config);
+}
+
+std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_dual_rocksdb_strategy(const BenchmarkConfig& benchmark_config) {
+    DualRocksDBStrategy::Config config;
+    
+    // 从 BenchmarkConfig 中读取 DualRocksDB 特定配置
+    config.range_size = benchmark_config.dual_rocksdb_range_size;
+    config.max_cache_memory = benchmark_config.dual_rocksdb_cache_size;
+    config.hot_cache_ratio = benchmark_config.dual_rocksdb_hot_ratio;
+    config.medium_cache_ratio = benchmark_config.dual_rocksdb_medium_ratio;
+    config.enable_compression = benchmark_config.dual_rocksdb_compression;
+    config.enable_bloom_filters = benchmark_config.dual_rocksdb_bloom_filters;
+    config.batch_size_blocks = benchmark_config.dual_rocksdb_batch_size;
+    config.max_batch_size_bytes = benchmark_config.dual_rocksdb_max_batch_bytes;
+    
+    utils::log_info("Creating DualRocksDB strategy with custom config:");
+    utils::log_info("  Range Size: {}", config.range_size);
+    utils::log_info("  Cache Memory: {} MB", config.max_cache_memory / (1024 * 1024));
+    utils::log_info("  Hot Cache Ratio: {:.2f}%", config.hot_cache_ratio * 100);
+    utils::log_info("  Medium Cache Ratio: {:.2f}%", config.medium_cache_ratio * 100);
+    utils::log_info("  Compression: {}", config.enable_compression ? "enabled" : "disabled");
+    utils::log_info("  Bloom Filters: {}", config.enable_bloom_filters ? "enabled" : "disabled");
+    utils::log_info("  Batch Size Blocks: {}", config.batch_size_blocks);
+    utils::log_info("  Max Batch Size Bytes: {} MB", config.max_batch_size_bytes / (1024 * 1024));
+    
     return std::make_unique<DualRocksDBStrategy>(config);
 }
 

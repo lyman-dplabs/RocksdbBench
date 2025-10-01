@@ -1,5 +1,6 @@
 #include "benchmark/strategy_scenario_runner.hpp"
 #include "core/strategy_db_manager.hpp"
+#include "core/config.hpp"
 #include "strategies/strategy_factory.hpp"
 #include "benchmark/metrics_collector.hpp"
 #include "utils/logger.hpp"
@@ -11,11 +12,16 @@ void test_historical_query_success_rate() {
     // Create temporary database path
     std::string db_path = "/tmp/test_historical_queries";
     
+    // Create default config for testing
+    BenchmarkConfig test_config;
+    test_config.initial_records = 100000;  // 100K records for testing
+    test_config.hotspot_updates = 10000;   // 10K updates for testing
+    
     // Initialize components with strategy pattern
-    auto strategy = StorageStrategyFactory::create_strategy("page_index");
+    auto strategy = StorageStrategyFactory::create_strategy("page_index", test_config);
     auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     auto metrics_collector = std::make_shared<MetricsCollector>();
-    StrategyScenarioRunner runner(db_manager, metrics_collector);
+    StrategyScenarioRunner runner(db_manager, metrics_collector, test_config);
     
     // Clean and open database
     assert(db_manager->open(true));
@@ -55,7 +61,7 @@ void test_bloom_filter_metrics() {
     auto strategy = StorageStrategyFactory::create_strategy("page_index");
     auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     auto metrics_collector = std::make_shared<MetricsCollector>();
-    StrategyScenarioRunner runner(db_manager, metrics_collector);
+    BenchmarkConfig test_config; test_config.initial_records = 100000; test_config.hotspot_updates = 10000; StrategyScenarioRunner runner(db_manager, metrics_collector, test_config);
     
     // Clean and open database
     assert(db_manager->open(true));
@@ -89,7 +95,7 @@ void test_key_block_pairing() {
     auto strategy = StorageStrategyFactory::create_strategy("page_index");
     auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     auto metrics_collector = std::make_shared<MetricsCollector>();
-    StrategyScenarioRunner runner(db_manager, metrics_collector);
+    BenchmarkConfig test_config; test_config.initial_records = 100000; test_config.hotspot_updates = 10000; StrategyScenarioRunner runner(db_manager, metrics_collector, test_config);
     
     // Clean and open database
     assert(db_manager->open(true));
@@ -123,7 +129,7 @@ void test_large_keyspace_queries() {
     auto strategy = StorageStrategyFactory::create_strategy("page_index");
     auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     auto metrics_collector = std::make_shared<MetricsCollector>();
-    StrategyScenarioRunner runner(db_manager, metrics_collector);
+    BenchmarkConfig test_config; test_config.initial_records = 100000; test_config.hotspot_updates = 10000; StrategyScenarioRunner runner(db_manager, metrics_collector, test_config);
     
     // Clean and open database
     assert(db_manager->open(true));

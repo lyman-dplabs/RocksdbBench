@@ -4,8 +4,41 @@
 #include <algorithm>
 
 StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager> db_manager, 
-                                             std::shared_ptr<MetricsCollector> metrics)
-    : db_manager_(db_manager), metrics_collector_(metrics), data_generator_(DataGenerator::Config()) {
+                                             std::shared_ptr<MetricsCollector> metrics,
+                                             const BenchmarkConfig& config)
+    : db_manager_(db_manager), metrics_collector_(metrics), config_(config), data_generator_(DataGenerator::Config()) {
+    
+    // 使用配置中的参数设置 DataGenerator
+    DataGenerator::Config data_config;
+    data_config.total_keys = config_.initial_records;
+    data_config.hotspot_count = static_cast<size_t>(config_.initial_records * 0.1);  // 10% hot keys
+    data_config.medium_count = static_cast<size_t>(config_.initial_records * 0.2);  // 20% medium keys  
+    data_config.tail_count = config_.initial_records - data_config.hotspot_count - data_config.medium_count;  // 70% tail keys
+    
+    utils::log_info("About to create DataGenerator with {} keys", data_config.total_keys);
+    data_generator_ = DataGenerator(data_config);
+    utils::log_info("DataGenerator created successfully");
+    
+    utils::log_info("StrategyScenarioRunner initialized with config:");
+    utils::log_info("  Total Keys: {}", data_config.total_keys);
+    utils::log_info("  Initial Records: {}", config_.initial_records);
+    utils::log_info("  Hotspot Updates: {}", config_.hotspot_updates);
+    utils::log_info("  Hot/Medium/Tail Keys: {} / {} / {}", 
+                   data_config.hotspot_count, data_config.medium_count, data_config.tail_count);
+    
+    // 验证DualRocksDB配置是否被正确接收
+    if (config_.storage_strategy == "dual_rocksdb_adaptive") {
+        utils::log_info("=== DUALROCKSDB CONFIG VERIFICATION ===");
+        utils::log_info("  dual_rocksdb_range_size: {}", config_.dual_rocksdb_range_size);
+        utils::log_info("  dual_rocksdb_cache_size: {} MB", config_.dual_rocksdb_cache_size / (1024 * 1024));
+        utils::log_info("  dual_rocksdb_hot_ratio: {:.3f}", config_.dual_rocksdb_hot_ratio);
+        utils::log_info("  dual_rocksdb_medium_ratio: {:.3f}", config_.dual_rocksdb_medium_ratio);
+        utils::log_info("  dual_rocksdb_compression: {}", config_.dual_rocksdb_compression ? "true" : "false");
+        utils::log_info("  dual_rocksdb_bloom_filters: {}", config_.dual_rocksdb_bloom_filters ? "true" : "false");
+        utils::log_info("  dual_rocksdb_batch_size: {}", config_.dual_rocksdb_batch_size);
+        utils::log_info("  dual_rocksdb_max_batch_bytes: {} MB", config_.dual_rocksdb_max_batch_bytes / (1024 * 1024));
+        utils::log_info("=== END DUALROCKSDB CONFIG VERIFICATION ===");
+    }
     
     // Set merge callback for metrics collection (for strategies that support it)
     db_manager_->set_merge_callback([this](size_t merged_values, size_t merged_value_size) {
@@ -16,10 +49,20 @@ StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager
 void StrategyScenarioRunner::run_initial_load_phase() {
     utils::log_info("Starting initial load phase...");
     
+    // DEBUG: 验证实际的数据大小
+    const auto& all_keys = data_generator_.get_all_keys();
+    utils::log_info("=== ACTUAL DATA VERIFICATION ===");
+    utils::log_info("Config says initial_records: {}", config_.initial_records);
+    utils::log_info("DataGenerator actually has: {} keys", all_keys.size());
+    utils::log_info("Expected: 1:2:7 ratio with {} hot, {} medium, {} tail", 
+                   static_cast<size_t>(config_.initial_records * 0.1),
+                   static_cast<size_t>(config_.initial_records * 0.2),
+                   config_.initial_records - static_cast<size_t>(config_.initial_records * 0.1) - static_cast<size_t>(config_.initial_records * 0.2));
+    utils::log_info("=== END VERIFICATION ===");
+    
     // 启用批量写入模式以优化数据准备阶段的性能
     db_manager_->set_batch_mode(true);
     
-    const auto& all_keys = data_generator_.get_all_keys();
     const size_t batch_size = 10000;
     size_t total_keys = all_keys.size();
     BlockNum current_block = 0;
@@ -81,12 +124,12 @@ void StrategyScenarioRunner::run_hotspot_update_phase() {
     db_manager_->set_batch_mode(false);
     
     const auto& all_keys = data_generator_.get_all_keys();
-    const size_t batch_size = 10000;
-    const size_t query_interval = 500000;
+    size_t batch_size = std::min(10000UL, config_.hotspot_updates);  // 确保不超过配置的更新数
+    const size_t query_interval = std::min(500000UL, config_.hotspot_updates);
     size_t total_processed = 0;
-    BlockNum current_block = 100000000 / 10000;
+    BlockNum current_block = config_.initial_records / 10000;  // 使用配置中的初始记录数
     
-    while (total_processed < 10000000) {
+    while (total_processed < config_.hotspot_updates) {  // 使用配置中的热点更新数
         auto update_indices = data_generator_.generate_hotspot_update_indices(batch_size);
         
         std::vector<DataRecord> records;
@@ -124,7 +167,7 @@ void StrategyScenarioRunner::run_hotspot_update_phase() {
         }
         
         if (total_processed % 100000 == 0) {
-            utils::log_info("Hotspot update progress: {}/{}", total_processed, 10000000);
+            utils::log_info("Hotspot update progress: {}/{}", total_processed, config_.hotspot_updates);
         }
     }
     

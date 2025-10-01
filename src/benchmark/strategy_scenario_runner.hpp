@@ -2,12 +2,14 @@
 #include "../core/strategy_db_manager.hpp"
 #include "metrics_collector.hpp"
 #include "../utils/data_generator.hpp"
+#include "../core/config.hpp"
 #include <memory>
 
 class StrategyScenarioRunner {
 public:
     StrategyScenarioRunner(std::shared_ptr<StrategyDBManager> db_manager, 
-                         std::shared_ptr<MetricsCollector> metrics);
+                         std::shared_ptr<MetricsCollector> metrics,
+                         const BenchmarkConfig& config);
 
     void run_initial_load_phase();
     void run_hotspot_update_phase();
@@ -25,6 +27,7 @@ private:
     std::shared_ptr<StrategyDBManager> db_manager_;
     std::shared_ptr<MetricsCollector> metrics_collector_;
     DataGenerator data_generator_;
+    BenchmarkConfig config_;
     
     // Track actual block ranges for realistic queries
     BlockNum initial_load_end_block_ = 0;
