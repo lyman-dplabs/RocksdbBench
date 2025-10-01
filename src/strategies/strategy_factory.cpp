@@ -40,7 +40,16 @@ std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_page_index_stra
 }
 
 std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_direct_version_strategy(const BenchmarkConfig& config) {
-    return std::make_unique<DirectVersionStrategy>();
+    DirectVersionStrategy::Config strategy_config;
+    
+    // 从 BenchmarkConfig 中读取 DirectVersion 特定配置
+    strategy_config.batch_size_blocks = config.direct_version_batch_size;
+    strategy_config.max_batch_size_bytes = config.direct_version_max_batch_bytes;
+    
+    utils::log_info("Creating DirectVersionStrategy with config: batch_size_blocks={}, max_batch_size_bytes={}", 
+                    strategy_config.batch_size_blocks, strategy_config.max_batch_size_bytes);
+    
+    return std::make_unique<DirectVersionStrategy>(strategy_config);
 }
 
 std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_dual_rocksdb_strategy(const BenchmarkConfig& benchmark_config) {

@@ -101,6 +101,26 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
       ->default_val(4UL * 1024 * 1024 * 1024)
       ->check(CLI::PositiveNumber);
 
+  // DirectVersion策略特定选项组
+  auto *direct_version_group = app.add_option_group(
+      "DirectVersion Options",
+      "Options specific to direct_version strategy");
+
+  direct_version_group
+      ->add_option("--direct-batch-size", config.direct_version_batch_size,
+                   "Maximum number of blocks per write batch for DirectVersion strategy (default: 5). "
+                   "Batch flushes when EITHER this block limit OR --direct-max-batch-bytes is reached.")
+      ->default_val(5)
+      ->check(CLI::PositiveNumber);
+
+  direct_version_group
+      ->add_option("--direct-max-batch-bytes", config.direct_version_max_batch_bytes,
+                   "Maximum batch size in bytes for DirectVersion strategy (default: 4GB). "
+                   "Batch flushes when EITHER this byte limit OR --direct-batch-size is reached. "
+                   "Note: Each block is ~640MB (10K KV × 64KB), so 4GB can hold ~6 blocks.")
+      ->default_val(4UL * 1024 * 1024 * 1024)
+      ->check(CLI::PositiveNumber);
+
   
   // 位置参数
   app.add_option("db_path_pos", config.db_path,

@@ -7,9 +7,21 @@
 #include <iomanip>
 #include <sstream>
 
+DirectVersionStrategy::DirectVersionStrategy() {
+    utils::log_info("DirectVersionStrategy created with default batch config: {} blocks, {} bytes max", 
+                    config_.batch_size_blocks, config_.max_batch_size_bytes);
+}
+
+DirectVersionStrategy::DirectVersionStrategy(const Config& config) : config_(config) {
+    utils::log_info("DirectVersionStrategy created with batch config: {} blocks, {} bytes max", 
+                    config_.batch_size_blocks, config_.max_batch_size_bytes);
+}
+
 bool DirectVersionStrategy::create_column_families(rocksdb::DB* db) {
     // 简化实现：不使用列族，而是使用键前缀来区分不同类型的数据
     utils::log_info("DirectVersionStrategy initialized - using key prefixes instead of column families");
+    utils::log_info("Batch configuration: {} blocks per batch, {} bytes max", 
+                    config_.batch_size_blocks, config_.max_batch_size_bytes);
     return true;
 }
 
@@ -18,22 +30,47 @@ bool DirectVersionStrategy::initialize(rocksdb::DB* db) {
 }
 
 bool DirectVersionStrategy::write_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) {
-    rocksdb::WriteBatch batch;
+    return write_batch_with_processor(db, records, [this](const DataRecord& record) {
+        add_to_batch(record);
+    });
+}
+
+bool DirectVersionStrategy::write_batch_with_processor(rocksdb::DB* db, const std::vector<DataRecord>& records, 
+                                                       std::function<void(const DataRecord&)> processor) {
+    std::lock_guard<std::mutex> lock(batch_mutex_);
     
+    // 处理每个记录
     for (const auto& record : records) {
-        // 直接存储: VERSION|addr_slot:block_number -> value
-        std::string version_key = build_version_key(record.addr_slot, record.block_num);
-        batch.Put(version_key, record.value);
+        processor(record);
     }
     
-    rocksdb::WriteOptions write_options;
-    write_options.sync = false;
-    auto status = db->Write(write_options, &batch);
-    
-    if (!status.ok()) {
-        utils::log_error("Failed to write batch: {}", status.ToString());
-        return false;
+    // 刷写所有待写入批次到数据库
+    if (batch_dirty_ && current_batch_blocks_ > 0) {
+        // 保存批次统计信息用于日志
+        uint32_t blocks_to_flush = current_batch_blocks_;
+        size_t size_to_flush = current_batch_size_;
+        
+        rocksdb::WriteOptions write_options;
+        write_options.sync = false;
+        
+        // 写入到数据库
+        auto status = db->Write(write_options, &pending_batch_);
+        if (!status.ok()) {
+            utils::log_error("Failed to flush DirectVersion batch: {}", status.ToString());
+            return false;
+        }
+        
+        utils::log_debug("Flushed DirectVersion batch: {} blocks, {} bytes", 
+                         blocks_to_flush, size_to_flush);
+        
+        // 重置批次状态
+        pending_batch_.Clear();
+        current_batch_size_ = 0;
+        current_batch_blocks_ = 0;
+        batch_dirty_ = false;
     }
+    
+    total_writes_ += records.size();
     
     return true;
 }
@@ -99,6 +136,18 @@ std::optional<Value> DirectVersionStrategy::find_value_by_version(rocksdb::DB* d
     }
     
     return std::nullopt;
+}
+
+void DirectVersionStrategy::add_to_batch(const DataRecord& record) {
+    // 计算记录大小（key + value）
+    std::string version_key = build_version_key(record.addr_slot, record.block_num);
+    size_t record_size = version_key.size() + record.value.size();
+    
+    // 添加到批次
+    pending_batch_.Put(version_key, record.value);
+    current_batch_size_ += record_size;
+    current_batch_blocks_++;
+    batch_dirty_ = true;
 }
 
 bool DirectVersionStrategy::cleanup(rocksdb::DB* db) {
