@@ -14,6 +14,7 @@ add_executable(test_initial_load_optimization test_initial_load_optimization.cpp
 add_executable(test_performance_comparison test_performance_comparison.cpp)
 add_executable(test_direct_version_optimized test_direct_version_optimized.cpp)
 add_executable(test_direct_version_batch_config test_direct_version_batch_config.cpp)
+add_executable(test_spdlog test_spdlog.cpp)
 
 # Common test libraries
 target_link_libraries(test_historical_queries
@@ -108,5 +109,11 @@ target_link_libraries(test_direct_version_batch_config
         strategies_lib
         RocksDB::rocksdb
         fmt::fmt
+)
+
+target_link_libraries(test_spdlog
+    PRIVATE
+        utils_lib
+        spdlog::spdlog
 )
 

@@ -11,6 +11,7 @@ find_package(fmt CONFIG REQUIRED)
 find_package(RocksDB CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -81,6 +82,7 @@ target_link_libraries(rocksdb_bench_app
         fmt::fmt
         CLI11::CLI11
         nlohmann_json::nlohmann_json
+        spdlog::spdlog
 )
 
 # Config generator utility
