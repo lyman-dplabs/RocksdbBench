@@ -134,9 +134,8 @@ cd rocksdb_bench
   --initial-records N        初始记录数（默认：100000000）
   --hotspot-updates N        热点更新数（默认：10000000）
   --config FILE              JSON配置文件路径
-  --dual-batch-size N        DualRocksDB批量写入块数（默认：5个块）
+  --dual-batch-size N        DualRocksDB批量写入块数（默认：5个块，设为1可禁用攒批）
   --dual-max-batch-bytes N   DualRocksDB最大批次大小（默认：128MB）
-  --dual-disable-batching    禁用DualRocksDB批量写入（默认：启用）
   --help, -h                 显示帮助信息
   --version, -v              显示版本信息
 ```
@@ -219,7 +218,7 @@ cd rocksdb_bench
 --dual-max-batch-bytes 256M # 增大内存限制
 
 # 禁用批量写入
---dual-disable-batching
+--dual-batch-size 1
 ```
 
 **性能效果**:

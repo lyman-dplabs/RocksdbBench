@@ -33,7 +33,6 @@ struct BenchmarkConfig {
     bool dual_rocksdb_bloom_filters = true;       // 启用布隆过滤器
     uint32_t dual_rocksdb_batch_size = 5;          // 每个WriteBatch写入的块数
     size_t dual_rocksdb_max_batch_bytes = 128 * 1024 * 1024; // 最大批次大小128MB
-    bool dual_rocksdb_enable_batching = true;      // 启用批量写入
     
     // 静态方法
     static BenchmarkConfig from_args(int argc, char* argv[]);

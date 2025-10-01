@@ -122,11 +122,7 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
       ->default_val(128 * 1024 * 1024)
       ->check(CLI::PositiveNumber);
 
-  dual_group
-      ->add_flag("--dual-disable-batching", config.dual_rocksdb_enable_batching,
-                 "Disable batch writing for DualRocksDB strategy")
-      ->default_val(true);
-
+  
   // 位置参数
   app.add_option("db_path_pos", config.db_path,
                  "Database path (positional argument)")

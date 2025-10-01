@@ -19,9 +19,8 @@ The primary script for running benchmarks with configurable options. Features mo
 - `--initial-records N` - Number of initial records (default: 100000000)
 - `--hotspot-updates N` - Number of hotspot updates (default: 10000000)
 - `--config FILE` - JSON configuration file path
-- `--dual-batch-size N` - DualRocksDB batch block count (default: 5)
+- `--dual-batch-size N` - DualRocksDB batch block count (default: 5, use 1 to disable batching)
 - `--dual-max-batch-bytes N` - DualRocksDB max batch size in bytes (default: 128MB)
-- `--dual-disable-batching` - Disable DualRocksDB batch writing (default: enabled)
 - `--help, -h` - Show detailed help message
 - `--version, -v` - Show version information
 

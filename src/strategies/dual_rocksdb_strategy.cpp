@@ -58,12 +58,7 @@ bool DualRocksDBStrategy::write_batch(rocksdb::DB* db, const std::vector<DataRec
         return false;
     }
     
-    // 如果没有启用批量写入，直接写入
-    if (!config_.enable_batch_writing) {
-        return write_batch_direct(db, records);
-    }
-    
-    // 批量写入模式
+    // 批量写入模式（默认启用，batch_size=1时为直接写入）
     std::lock_guard<std::mutex> lock(batch_mutex_);
     
     for (const auto& record : records) {
@@ -541,9 +536,6 @@ void DualRocksDBStrategy::set_batch_mode(bool enable) {
     if (!enable && batch_dirty_) {
         flush_pending_batches();
     }
-    
-    // 动态修改批量写入配置
-    config_.enable_batch_writing = enable;
     
     log_info("Batch mode {}", enable ? "enabled" : "disabled");
 }

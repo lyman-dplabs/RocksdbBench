@@ -43,7 +43,6 @@ private:
         // 批量写入配置
         uint32_t batch_size_blocks = 5;  // 每个WriteBatch写入的块数（默认5个块）
         size_t max_batch_size_bytes = 128 * 1024 * 1024; // 最大批次大小128MB
-        bool enable_batch_writing = true;  // 启用批量写入
     };
     
 private:
