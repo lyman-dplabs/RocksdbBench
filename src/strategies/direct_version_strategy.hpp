@@ -25,7 +25,7 @@ public:
     
     std::string get_strategy_name() const override { return "direct_version"; }
     std::string get_description() const override { 
-        return "Two-layer storage: version_index(addr_slot:version->block_num) + data(block_num->value)"; 
+        return "Direct version storage: VERSION|addr_slot:block -> value"; 
     }
     
     bool cleanup(rocksdb::DB* db) override;
@@ -34,11 +34,8 @@ private:
     bool create_column_families(rocksdb::DB* db);
     
     std::string build_version_key(const std::string& addr_slot, BlockNum version);
-    std::string build_data_key(BlockNum block_num, const std::string& addr_slot);
     
-    std::optional<BlockNum> find_latest_block_by_version(rocksdb::DB* db, 
-                                                         const std::string& version_key,
-                                                         const std::string& addr_slot);
-    
-    std::optional<Value> get_value_by_block(rocksdb::DB* db, BlockNum block_num, const std::string& addr_slot);
+    std::optional<Value> find_value_by_version(rocksdb::DB* db, 
+                                                const std::string& version_key,
+                                                const std::string& addr_slot);
 };
