@@ -482,10 +482,12 @@ rocksdb::Options DualRocksDBStrategy::get_rocksdb_options(bool is_range_index) c
     
     // 为范围索引数据库优化
     if (is_range_index) {
-        options.OptimizeForPointLookup(1024 * 1024 * 1024); // 1GB cache
+        options.OptimizeForPointLookup(128 * 1024 * 1024); // 减少到128MB cache，避免OOM
     } else {
         // 为数据存储数据库优化
         options.OptimizeLevelStyleCompaction();
+        // 设置更合理的块缓存大小，避免双数据库内存占用过高
+        options.row_cache = rocksdb::NewLRUCache(128 * 1024 * 1024); // 128MB
     }
     
     return options;
@@ -550,9 +552,19 @@ void DualRocksDBStrategy::add_to_batch(const DataRecord& record) {
     // 计算目标范围
     uint32_t range_num = calculate_range(record.block_num);
     
-    // 更新范围索引（直接更新，不缓存范围索引）
-    std::vector<uint32_t> current_ranges = get_address_ranges(range_index_db_.get(), record.addr_slot);
+    // 检查或初始化当前地址的range缓存
+    auto it = batch_range_cache_.find(record.addr_slot);
+    if (it == batch_range_cache_.end()) {
+        // 首次处理这个地址，从数据库加载现有的ranges
+        batch_range_cache_[record.addr_slot] = get_address_ranges(range_index_db_.get(), record.addr_slot);
+        it = batch_range_cache_.find(record.addr_slot);
+    }
+    
+    std::vector<uint32_t>& current_ranges = it->second;
+    
+    // 检查range是否已存在
     if (std::find(current_ranges.begin(), current_ranges.end(), range_num) == current_ranges.end()) {
+        // 添加新range到缓存
         current_ranges.push_back(range_num);
         std::string serialized = serialize_range_list(current_ranges);
         pending_range_batch_.Put(record.addr_slot, serialized);
@@ -632,4 +644,7 @@ void DualRocksDBStrategy::flush_pending_batches() {
     current_batch_size_ = 0;
     current_batch_blocks_ = 0;
     batch_dirty_ = false;
+    
+    // 清理批次期间的range索引缓存
+    batch_range_cache_.clear();
 }

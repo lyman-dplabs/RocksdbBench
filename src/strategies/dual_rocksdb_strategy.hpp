@@ -65,6 +65,9 @@ private:
     mutable uint32_t current_batch_blocks_ = 0;
     mutable bool batch_dirty_ = false;
     
+    // 批量写入期间的range索引缓存，避免重复查询
+    mutable std::unordered_map<std::string, std::vector<uint32_t>> batch_range_cache_;
+    
 public:
     explicit DualRocksDBStrategy(const Config& config);
     ~DualRocksDBStrategy();
