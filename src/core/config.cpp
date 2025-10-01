@@ -1,11 +1,8 @@
 #include "config.hpp"
-#include "../strategies/strategy_factory.hpp"
 #include "../utils/logger.hpp"
 #include <CLI/CLI.hpp>
 #include <algorithm>
 #include <cctype>
-#include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <sstream>
@@ -41,10 +38,6 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
       ->default_val(10000000)
       ->check(CLI::PositiveNumber);
 
-  app.add_option("-q,--query-interval", config.query_interval, "Query interval")
-      ->default_val(500000)
-      ->check(CLI::PositiveNumber);
-
   // 布尔选项
   app.add_flag("--disable-bloom-filter", config.enable_bloom_filter,
                "Disable bloom filter (default: enabled)")
@@ -54,22 +47,6 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
                "Clean existing data before starting");
 
   app.add_flag("-v,--verbose", config.verbose, "Enable verbose output");
-
-  // app.add_flag("--version", config.version,
-  //                 "Show version information");
-
-  // 新增选项
-  app.add_option("-t,--threads", config.thread_count, "Number of threads")
-      ->default_val(1)
-      ->check(CLI::PositiveNumber);
-
-  app.add_option("--log-level", config.log_level,
-                 "Log level (trace, debug, info, warn, error)")
-      ->check(CLI::IsMember({"trace", "debug", "info", "warn", "error"}))
-      ->default_val("info");
-
-  app.add_option("-f,--config", config.config_file,
-                 "Load configuration from file");
 
   // DualRocksDB特定配置
   auto *dual_group = app.add_option_group(
@@ -147,19 +124,19 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
     // 使用CLI11_PARSE_AND_THROW，如果失败会抛出异常
     app.parse(argc, argv);
 
-    // 如果指定了配置文件，则加载配置文件
-    if (!config.config_file.empty()) {
-      auto file_config = from_file(config.config_file);
-      // 命令行参数优先级高于配置文件
-      if (config.storage_strategy ==
-          "page_index") { // 默认值，可能被配置文件覆盖
-        config.storage_strategy = file_config.storage_strategy;
-      }
-      if (config.db_path == "./rocksdb_data") { // 默认值，可能被配置文件覆盖
-        config.db_path = file_config.db_path;
-      }
-      // 其他字段的合并逻辑...
-    }
+    // 配置文件功能暂时禁用，因为实现不完整
+    // if (!config.config_file.empty()) {
+    //   auto file_config = from_file(config.config_file);
+    //   // 命令行参数优先级高于配置文件
+    //   if (config.storage_strategy ==
+    //       "page_index") { // 默认值，可能被配置文件覆盖
+    //     config.storage_strategy = file_config.storage_strategy;
+    //   }
+    //   if (config.db_path == "./rocksdb_data") { // 默认值，可能被配置文件覆盖
+    //     config.db_path = file_config.db_path;
+    //   }
+    //   // 其他字段的合并逻辑...
+    // }
 
   } catch (const CLI::ParseError &e) {
     std::cerr << "Parse error: " << e.what() << std::endl;
@@ -197,18 +174,12 @@ BenchmarkConfig BenchmarkConfig::from_file(const std::string &config_path) {
         config.initial_records = bench["initial_records"].get<size_t>();
       if (bench.contains("hotspot_updates"))
         config.hotspot_updates = bench["hotspot_updates"].get<size_t>();
-      if (bench.contains("query_interval"))
-        config.query_interval = bench["query_interval"].get<size_t>();
       if (bench.contains("enable_bloom_filter"))
         config.enable_bloom_filter = bench["enable_bloom_filter"].get<bool>();
       if (bench.contains("clean_existing_data"))
         config.clean_existing_data = bench["clean_existing_data"].get<bool>();
       if (bench.contains("verbose"))
         config.verbose = bench["verbose"].get<bool>();
-      if (bench.contains("thread_count"))
-        config.thread_count = bench["thread_count"].get<size_t>();
-      if (bench.contains("log_level"))
-        config.log_level = bench["log_level"].get<std::string>();
     }
 
     if (j.contains("dual_rocksdb")) {
@@ -242,12 +213,9 @@ void BenchmarkConfig::save_to_file(const std::string &config_path) const {
                     {"db_path", db_path},
                     {"initial_records", initial_records},
                     {"hotspot_updates", hotspot_updates},
-                    {"query_interval", query_interval},
                     {"enable_bloom_filter", enable_bloom_filter},
                     {"clean_existing_data", clean_existing_data},
-                    {"verbose", verbose},
-                    {"thread_count", thread_count},
-                    {"log_level", log_level}};
+                    {"verbose", verbose}};
 
   j["dual_rocksdb"] = {{"range_size", dual_rocksdb_range_size},
                        {"cache_size", dual_rocksdb_cache_size},
@@ -270,13 +238,10 @@ void BenchmarkConfig::print_config() const {
   utils::log_info("Database Path: {}", db_path);
   utils::log_info("Initial Records: {}", initial_records);
   utils::log_info("Hotspot Updates: {}", hotspot_updates);
-  utils::log_info("Query Interval: {}", query_interval);
   utils::log_info("Bloom Filter: {}",
                   enable_bloom_filter ? "Enabled" : "Disabled");
   utils::log_info("Clean Existing Data: {}",
                   clean_existing_data ? "Yes" : "No");
-  utils::log_info("Thread Count: {}", thread_count);
-  utils::log_info("Log Level: {}", log_level);
   utils::log_info("Verbose Output: {}", verbose ? "Yes" : "No");
 
   if (storage_strategy == "dual_rocksdb_adaptive") {
@@ -309,10 +274,6 @@ std::vector<std::string> BenchmarkConfig::get_validation_errors() const {
 
   if (hotspot_updates > initial_records) {
     errors.push_back("Hotspot updates cannot exceed initial records");
-  }
-
-  if (thread_count == 0) {
-    errors.push_back("Thread count must be greater than 0");
   }
 
   if (dual_rocksdb_hot_ratio + dual_rocksdb_medium_ratio > 1.0) {
@@ -358,17 +319,9 @@ void BenchmarkConfig::print_help(const std::string &program_name) {
   std::cout << "  -u,--hotspot-updates N        Number of hotspot updates "
                "(default: 10000000)\n";
   std::cout
-      << "  -q,--query-interval N         Query interval (default: 500000)\n";
-  std::cout
       << "  -c,--clean-data              Clean existing data before starting\n";
-  std::cout
-      << "  -t,--threads N               Number of threads (default: 1)\n";
   std::cout << "  -v,--verbose                 Enable verbose output\n";
-  std::cout
-      << "  -f,--config FILE             Load configuration from JSON file\n";
   std::cout << "  --disable-bloom-filter       Disable bloom filter\n";
-  std::cout << "  --log-level LEVEL            Log level "
-               "(trace|debug|info|warn|error)\n";
   std::cout << "  -h,--help                    Show this help message\n";
   std::cout << "  --version                    Show version information\n";
   std::cout << "\nDualRocksDB Options:\n";

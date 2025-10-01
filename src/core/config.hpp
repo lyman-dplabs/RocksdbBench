@@ -13,16 +13,12 @@ struct BenchmarkConfig {
     std::string db_path = "./rocksdb_data";        // 数据库路径
     size_t initial_records = 100000000;           // 初始记录数
     size_t hotspot_updates = 10000000;            // 热点更新数
-    size_t query_interval = 500000;               // 查询间隔
+    // size_t query_interval = 500000;               // 查询间隔（暂时移除）
     bool enable_bloom_filter = true;               // 启用布隆过滤器
     bool clean_existing_data = false;              // 清理现有数据
     
-    // 新增配置选项
+    // 配置选项
     bool verbose = false;                         // 详细输出
-    std::string config_file;                      // 配置文件路径
-    bool version = false;                         // 显示版本信息
-    size_t thread_count = 1;                      // 线程数
-    std::string log_level = "info";               // 日志级别
     
     // DualRocksDB特定配置
     size_t dual_rocksdb_range_size = 10000;       // 范围大小

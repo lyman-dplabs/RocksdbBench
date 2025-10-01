@@ -4,8 +4,6 @@ add_library(core_lib
     strategy_db_manager.cpp
     config.hpp
     config.cpp
-    db_manager.hpp
-    db_manager.cpp
     types.hpp
 )
 
