@@ -5,6 +5,7 @@
 #include <thread>
 #include <vector>
 #include <mutex>
+#include <cstring>
 
 DataGenerator::DataGenerator(const Config& config) : config_(config), rng_(std::random_device{}()) {
     generate_initial_keys_parallel();
@@ -76,30 +77,57 @@ std::vector<size_t> DataGenerator::generate_hotspot_update_indices(size_t batch_
     return indices;
 }
 
-std::string DataGenerator::generate_random_value() {
+std::string DataGenerator::generate_unique_random_value(uint64_t index) {
     std::string value;
     value.resize(32);
     
-    std::uniform_int_distribution<uint8_t> dist(1, 255);
+    // 基于唯一索引生成确定性"随机"数据
+    // 使用多个不同的hash函数和黄金比例常数保证分布均匀
+    uint64_t base_index = index + 0x9E3779B97F4A7C15ULL; // 黄金比例常数
+    uint64_t hash1 = std::hash<uint64_t>{}(base_index);
+    uint64_t hash2 = std::hash<uint64_t>{}(base_index ^ 0x87654321FEDCBA98ULL);
+    uint64_t hash3 = std::hash<uint64_t>{}(base_index ^ 0x123456789ABCDEFULL);
+    uint64_t hash4 = std::hash<uint64_t>{}(base_index ^ 0xFEDCBA9876543210ULL);
     
-    for (size_t i = 0; i < 32; ++i) {
-        value[i] = static_cast<char>(dist(rng_));
-    }
+    // 进一步打乱，避免hash函数的线性特性
+    hash1 = (hash1 ^ (hash1 >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    hash2 = (hash2 ^ (hash2 >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    hash3 = (hash3 ^ (hash3 >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    hash4 = (hash4 ^ (hash4 >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    
+    hash1 = (hash1 ^ (hash1 >> 27)) * 0x94D049BB133111EBULL;
+    hash2 = (hash2 ^ (hash2 >> 27)) * 0x94D049BB133111EBULL;
+    hash3 = (hash3 ^ (hash3 >> 27)) * 0x94D049BB133111EBULL;
+    hash4 = (hash4 ^ (hash4 >> 27)) * 0x94D049BB133111EBULL;
+    
+    hash1 = hash1 ^ (hash1 >> 31);
+    hash2 = hash2 ^ (hash2 >> 31);
+    hash3 = hash3 ^ (hash3 >> 31);
+    hash4 = hash4 ^ (hash4 >> 31);
+    
+    memcpy(&value[0], &hash1, 8);
+    memcpy(&value[8], &hash2, 8);
+    memcpy(&value[16], &hash3, 8);
+    memcpy(&value[24], &hash4, 8);
     
     return value;
 }
 
+std::string DataGenerator::generate_random_value() {
+    uint64_t current_index = global_random_value_count_.fetch_add(1, std::memory_order_relaxed);
+    return generate_unique_random_value(current_index);
+}
+
+// 优化后的批量随机值生成 - 使用hash方法保证唯一性和高性能
 std::vector<std::string> DataGenerator::generate_random_values(size_t count) {
     std::vector<std::string> values;
-    values.resize(count);
+    values.reserve(count);
     
-    std::uniform_int_distribution<uint8_t> dist(1, 255);
+    // 批量获取唯一索引范围，保证全局唯一性
+    uint64_t start_index = global_random_value_count_.fetch_add(count, std::memory_order_relaxed);
     
     for (size_t i = 0; i < count; ++i) {
-        values[i].resize(32);
-        for (size_t j = 0; j < 32; ++j) {
-            values[i][j] = static_cast<char>(dist(rng_));
-        }
+        values.push_back(generate_unique_random_value(start_index + i));
     }
     
     return values;

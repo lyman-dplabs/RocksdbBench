@@ -3,6 +3,7 @@
 #include <string>
 #include <random>
 #include <algorithm>
+#include <atomic>
 #include "../core/types.hpp"
 
 class DataGenerator {
@@ -28,7 +29,11 @@ private:
     std::mt19937 rng_;
     std::vector<std::string> all_keys_;
     
+    // 全局随机值计数器，保证所有生成的随机值都是唯一的
+    std::atomic<uint64_t> global_random_value_count_{0};
+    
     std::string generate_address();
     std::string generate_slot();
     std::string create_addr_slot(const std::string& addr, const std::string& slot);
+    std::string generate_unique_random_value(uint64_t index);
 };
