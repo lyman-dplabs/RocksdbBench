@@ -88,14 +88,17 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
   
   dual_group
       ->add_option("--dual-batch-size", config.dual_rocksdb_batch_size,
-                   "Number of blocks per write batch for DualRocksDB strategy")
+                   "Maximum number of blocks per write batch for DualRocksDB strategy (default: 5). "
+                   "Batch flushes when EITHER this block limit OR --dual-max-batch-bytes is reached.")
       ->default_val(5)
       ->check(CLI::PositiveNumber);
 
   dual_group
       ->add_option("--dual-max-batch-bytes", config.dual_rocksdb_max_batch_bytes,
-                   "Maximum batch size in bytes for DualRocksDB strategy")
-      ->default_val(128 * 1024 * 1024)
+                   "Maximum batch size in bytes for DualRocksDB strategy (default: 4GB). "
+                   "Batch flushes when EITHER this byte limit OR --dual-batch-size is reached. "
+                   "Note: Each block is ~640MB (10K KV × 64KB), so 4GB can hold ~6 blocks.")
+      ->default_val(4UL * 1024 * 1024 * 1024)
       ->check(CLI::PositiveNumber);
 
   
@@ -263,6 +266,8 @@ void BenchmarkConfig::print_config() const {
     utils::log_info("  Medium Cache Ratio: {:.2f}%",
                     dual_rocksdb_medium_ratio * 100);
     utils::log_info("  Dynamic Cache: {}", dual_rocksdb_dynamic_cache ? "Enabled" : "Disabled");
+    utils::log_info("  Batch Size: {} blocks", dual_rocksdb_batch_size);
+    utils::log_info("  Max Batch Bytes: {} GB", dual_rocksdb_max_batch_bytes / (1024.0 * 1024 * 1024));
     utils::log_info("  Bloom Filters: Always Enabled (Optimized)");
   }
 

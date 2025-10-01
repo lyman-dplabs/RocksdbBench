@@ -32,7 +32,7 @@ struct BenchmarkConfig {
     double dual_rocksdb_medium_ratio = 0.05;       // 中等缓存比例
     bool dual_rocksdb_dynamic_cache = false;      // 启用动态缓存优化
     uint32_t dual_rocksdb_batch_size = 5;          // 每个WriteBatch写入的块数
-    size_t dual_rocksdb_max_batch_bytes = 128 * 1024 * 1024; // 最大批次大小128MB
+    size_t dual_rocksdb_max_batch_bytes = 4UL * 1024 * 1024 * 1024; // 最大批次大小4GB
     
     // 静态方法
     static BenchmarkConfig from_args(int argc, char* argv[]);
