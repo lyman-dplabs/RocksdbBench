@@ -53,6 +53,7 @@ std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_dual_rocksdb_st
     config.medium_cache_ratio = benchmark_config.dual_rocksdb_medium_ratio;
     config.enable_compression = benchmark_config.enable_compression;  // 使用全局压缩设置
     config.enable_bloom_filters = true;  // 强制启用布隆过滤器以获得最佳性能
+    config.enable_dynamic_cache_optimization = benchmark_config.dual_rocksdb_dynamic_cache;  // 使用命令行配置
     config.batch_size_blocks = benchmark_config.dual_rocksdb_batch_size;
     config.max_batch_size_bytes = benchmark_config.dual_rocksdb_max_batch_bytes;
     

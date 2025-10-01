@@ -81,6 +81,10 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
       ->default_val(0.05)
       ->check(CLI::Range(0.0, 1.0));
 
+  dual_group
+      ->add_flag("--dual-enable-dynamic-cache", config.dual_rocksdb_dynamic_cache,
+                 "Enable dynamic cache optimization for DualRocksDB strategy");
+
   
   dual_group
       ->add_option("--dual-batch-size", config.dual_rocksdb_batch_size,
@@ -198,6 +202,8 @@ BenchmarkConfig BenchmarkConfig::from_file(const std::string &config_path) {
         config.dual_rocksdb_hot_ratio = dual["hot_ratio"].get<double>();
       if (dual.contains("medium_ratio"))
         config.dual_rocksdb_medium_ratio = dual["medium_ratio"].get<double>();
+      if (dual.contains("dynamic_cache"))
+        config.dual_rocksdb_dynamic_cache = dual["dynamic_cache"].get<bool>();
     }
 
     return config;
@@ -223,7 +229,8 @@ void BenchmarkConfig::save_to_file(const std::string &config_path) const {
   j["dual_rocksdb"] = {{"range_size", dual_rocksdb_range_size},
                        {"cache_size", dual_rocksdb_cache_size},
                        {"hot_ratio", dual_rocksdb_hot_ratio},
-                       {"medium_ratio", dual_rocksdb_medium_ratio}};
+                       {"medium_ratio", dual_rocksdb_medium_ratio},
+                       {"dynamic_cache", dual_rocksdb_dynamic_cache}};
 
   std::ofstream file(config_path);
   if (!file.is_open()) {
@@ -255,6 +262,7 @@ void BenchmarkConfig::print_config() const {
     utils::log_info("  Hot Cache Ratio: {:.2f}%", dual_rocksdb_hot_ratio * 100);
     utils::log_info("  Medium Cache Ratio: {:.2f}%",
                     dual_rocksdb_medium_ratio * 100);
+    utils::log_info("  Dynamic Cache: {}", dual_rocksdb_dynamic_cache ? "Enabled" : "Disabled");
     utils::log_info("  Bloom Filters: Always Enabled (Optimized)");
   }
 
@@ -334,6 +342,8 @@ void BenchmarkConfig::print_help(const std::string &program_name) {
                "strategy (default: 0.01)\n";
   std::cout << "  --dual-medium-ratio RATIO    Medium cache ratio for "
                "DualRocksDB strategy (default: 0.05)\n";
+  std::cout << "  --dual-enable-dynamic-cache  Enable dynamic cache optimization "
+               "for DualRocksDB strategy\n";
   std::cout << "\nExamples:\n";
   std::cout << "  " << program_name
             << " --strategy dual_rocksdb_adaptive --clean-data\n";
