@@ -6,7 +6,7 @@
 StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager> db_manager, 
                                              std::shared_ptr<MetricsCollector> metrics,
                                              const BenchmarkConfig& config)
-    : db_manager_(db_manager), metrics_collector_(metrics), config_(config), data_generator_(DataGenerator::Config()) {
+    : db_manager_(db_manager), metrics_collector_(metrics), config_(config) {
     
     // 使用配置中的参数设置 DataGenerator
     DataGenerator::Config data_config;
@@ -16,11 +16,14 @@ StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager
     data_config.tail_count = config_.initial_records - data_config.hotspot_count - data_config.medium_count;  // 70% tail keys
     
     utils::log_info("About to create DataGenerator with {} keys", data_config.total_keys);
-    data_generator_ = DataGenerator(data_config);
+    
+    data_generator_ = std::make_unique<DataGenerator>(data_config);
+    
     utils::log_info("DataGenerator created successfully");
     
+    const auto& all_keys = data_generator_->get_all_keys();
     utils::log_info("StrategyScenarioRunner initialized with config:");
-    utils::log_info("  Total Keys: {}", data_config.total_keys);
+    utils::log_info("  Total Keys: {}", all_keys.size());
     utils::log_info("  Initial Records: {}", config_.initial_records);
     utils::log_info("  Hotspot Updates: {}", config_.hotspot_updates);
     utils::log_info("  Hot/Medium/Tail Keys: {} / {} / {}", 
@@ -50,7 +53,7 @@ void StrategyScenarioRunner::run_initial_load_phase() {
     utils::log_info("Starting initial load phase...");
     
     // DEBUG: 验证实际的数据大小
-    const auto& all_keys = data_generator_.get_all_keys();
+    const auto& all_keys = data_generator_->get_all_keys();
     utils::log_info("=== ACTUAL DATA VERIFICATION ===");
     utils::log_info("Config says initial_records: {}", config_.initial_records);
     utils::log_info("DataGenerator actually has: {} keys", all_keys.size());
@@ -76,7 +79,7 @@ void StrategyScenarioRunner::run_initial_load_phase() {
         size_t current_batch_size = end_idx - i;
         
         std::vector<DataRecord> records;
-        auto random_values = data_generator_.generate_random_values(current_batch_size);
+        auto random_values = data_generator_->generate_random_values(current_batch_size);
         
         records.reserve(current_batch_size);
         
@@ -123,17 +126,17 @@ void StrategyScenarioRunner::run_hotspot_update_phase() {
     // 切换到直接写入模式以确保实时一致性
     db_manager_->set_batch_mode(false);
     
-    const auto& all_keys = data_generator_.get_all_keys();
+    const auto& all_keys = data_generator_->get_all_keys();
     size_t batch_size = std::min(10000UL, config_.hotspot_updates);  // 确保不超过配置的更新数
     const size_t query_interval = std::min(500000UL, config_.hotspot_updates);
     size_t total_processed = 0;
     BlockNum current_block = config_.initial_records / 10000;  // 使用配置中的初始记录数
     
     while (total_processed < config_.hotspot_updates) {  // 使用配置中的热点更新数
-        auto update_indices = data_generator_.generate_hotspot_update_indices(batch_size);
+        auto update_indices = data_generator_->generate_hotspot_update_indices(batch_size);
         
         std::vector<DataRecord> records;
-        auto random_values = data_generator_.generate_random_values(update_indices.size());
+        auto random_values = data_generator_->generate_random_values(update_indices.size());
         
         records.reserve(update_indices.size());
         

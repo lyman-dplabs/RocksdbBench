@@ -26,7 +26,7 @@ public:
 private:
     std::shared_ptr<StrategyDBManager> db_manager_;
     std::shared_ptr<MetricsCollector> metrics_collector_;
-    DataGenerator data_generator_;
+    std::unique_ptr<DataGenerator> data_generator_;
     BenchmarkConfig config_;
     
     // Track actual block ranges for realistic queries
