@@ -13,7 +13,7 @@
 namespace utils {
 
 // 全局日志器初始化 - 支持动态命名
-inline void init_logger(const std::string& strategy_name = "rocksdb_bench") {
+inline void init_logger(const std::string& strategy_name = "rocksdb_bench", bool verbose = false) {
     static bool initialized = false;
     if (!initialized) {
         // 创建logs目录
@@ -45,8 +45,13 @@ inline void init_logger(const std::string& strategy_name = "rocksdb_bench") {
         auto logger = std::make_shared<spdlog::logger>("rocksdb_logger", sinks.begin(), sinks.end());
         
         // 设置日志级别
-        logger->set_level(spdlog::level::debug);
-        logger->flush_on(spdlog::level::err); // 只在错误级别立即刷新
+        if (verbose) {
+            logger->set_level(spdlog::level::debug);
+            logger->flush_on(spdlog::level::debug); // verbose模式下立即刷新debug日志
+        } else {
+            logger->set_level(spdlog::level::info);
+            logger->flush_on(spdlog::level::err); // 只在错误级别立即刷新
+        }
         
         // 注册为默认日志器
         spdlog::set_default_logger(logger);
