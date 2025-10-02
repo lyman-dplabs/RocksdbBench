@@ -52,49 +52,58 @@ bool DualRocksDBStrategy::initialize(rocksdb::DB* main_db) {
     return true;
 }
 
-bool DualRocksDBStrategy::write_batch_with_processor(rocksdb::DB* db, const std::vector<DataRecord>& records, 
-                                                     std::function<void(const DataRecord&)> processor, bool should_flush_batch) {
-    if (!range_index_db_ || !data_storage_db_) {
-        log_error("DualRocksDB databases not initialized");
-        return false;
-    }
-    
-    // 批量写入模式 - 使用指定的processor
-    std::lock_guard<std::mutex> lock(batch_mutex_);
-    
-    for (const auto& record : records) {
-        processor(record);
-        
-        // 更新访问模式（写入也算访问）
-        if (cache_manager_) {
-            cache_manager_->update_access_pattern(record.addr_slot, true);
-        }
-    }
-    
-    // initial load的时候会自动攒批刷写
-    // update hotspot的时候直接下刷
-    if (should_flush_batch && batch_dirty_) {
-        flush_pending_batches();
-    }
-    
-    total_writes_ += records.size();
-    
-    // 检查内存压力
-    check_memory_pressure();
-    
-    return true;
-}
 
 bool DualRocksDBStrategy::write_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) {
-    return write_batch_with_processor(db, records, [this](const DataRecord& record) {
-        add_to_batch(record);
-    }, true);
+    // Hotspot update模式：每个vector作为1个block，立即写入，不积累
+    utils::log_debug("write_batch: Processing {} records as 1 block", records.size());
+    
+    // 准备WriteBatch
+    rocksdb::WriteBatch range_batch;
+    rocksdb::WriteBatch data_batch;
+    
+    // 第一步：处理所有记录，收集range更新和数据
+    RangeIndexUpdates range_updates = collect_range_updates_for_hotspot(records);
+    add_data_to_batch(records, data_batch);
+    
+    // 第二步：构建range index更新
+    build_range_index_batch(range_updates, range_batch);
+    
+    // 第三步：立即写入
+    bool success = execute_batch_write(range_batch, data_batch, "hotspot_update");
+    if (success) {
+        total_writes_ += records.size();
+        utils::log_debug("write_batch: Successfully wrote {} records", records.size());
+    }
+    
+    return success;
 }
 
 bool DualRocksDBStrategy::write_initial_load_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) {
-    return write_batch_with_processor(db, records, [this](const DataRecord& record) {
-        add_to_initial_load_batch(record);
-    }, false); // 启用自动刷写模式，让batch自己控制
+    // Initial load模式：积累多个blocks，达到batch限制后统一写入
+    utils::log_debug("write_initial_load_batch: Processing {} records as 1 block", records.size());
+    
+    std::lock_guard<std::mutex> lock(batch_mutex_);
+    
+    // 计算这个block的大小
+    size_t block_size = calculate_block_size(records);
+    
+    // 添加到pending batches
+    add_block_to_pending_batch(records, block_size);
+    
+    // 更新统计
+    current_batch_blocks_++;
+    total_writes_ += records.size();
+    
+    utils::log_debug("write_initial_load_batch: Added block, batch now has {} blocks, {} bytes", 
+                     current_batch_blocks_, current_batch_size_);
+    
+    // 检查是否需要刷写
+    if (should_flush_batch(0)) {
+        utils::log_info("Flushing batch: {} blocks, {} bytes", current_batch_blocks_, current_batch_size_);
+        flush_pending_batches();
+    }
+    
+    return true;
 }
 
 std::optional<Value> DualRocksDBStrategy::query_latest_value(rocksdb::DB* db, const std::string& addr_slot) {
@@ -548,57 +557,15 @@ void DualRocksDBStrategy::flush_all_batches() {
     }
 }
 
-void DualRocksDBStrategy::add_to_batch(const DataRecord& record) {
-    // 计算目标范围
-    uint32_t range_num = calculate_range(record.block_num);
-    
-    // 检查或初始化当前地址的range缓存
-    auto it = batch_range_cache_.find(record.addr_slot);
-    if (it == batch_range_cache_.end()) {
-        // 首次处理这个地址，从数据库加载现有的ranges
-        batch_range_cache_[record.addr_slot] = get_address_ranges(range_index_db_.get(), record.addr_slot);
-        it = batch_range_cache_.find(record.addr_slot);
-    }
-    
-    std::vector<uint32_t>& current_ranges = it->second;
-    
-    // 检查range是否已存在
-    if (std::find(current_ranges.begin(), current_ranges.end(), range_num) == current_ranges.end()) {
-        // 添加新range到缓存
-        current_ranges.push_back(range_num);
-        std::string serialized = serialize_range_list(current_ranges);
-        pending_range_batch_.Put(record.addr_slot, serialized);
-    }
-    
-    // 存储数据（带范围前缀）
-    std::string data_key = build_data_key(range_num, record.addr_slot, record.block_num);
-    pending_data_batch_.Put(data_key, record.value);
-    
-    // 更新批次统计
-    size_t record_size = record.value.size() + data_key.size() + 100; // 估算大小
-    current_batch_size_ += record_size;
-    current_batch_blocks_++;
-    batch_dirty_ = true;
-    
-    // 检查是否需要刷写
-    if (should_flush_batch(record_size)) {
-        flush_pending_batches();
-    }
-}
 
 bool DualRocksDBStrategy::should_flush_batch(size_t record_size) const {
-    // 如果当前批次为空，不需要刷写
-    if (current_batch_blocks_ == 0) {
-        return false;
-    }
-    
-    // 检查块数限制
-    if (current_batch_blocks_ >= config_.batch_size_blocks) {
+    // 检查字节大小限制
+    if (current_batch_size_ >= config_.max_batch_size_bytes) {
         return true;
     }
     
-    // 检查字节大小限制
-    if (current_batch_size_ >= config_.max_batch_size_bytes) {
+    // 检查块数限制（只对initial load模式有效）
+    if (current_batch_blocks_ >= config_.batch_size_blocks) {
         return true;
     }
     
@@ -610,21 +577,6 @@ bool DualRocksDBStrategy::should_flush_batch(size_t record_size) const {
     return false;
 }
 
-void DualRocksDBStrategy::add_to_initial_load_batch(const DataRecord& record) {
-    // 使用通用逻辑处理record
-    process_record_for_batch(record, pending_range_batch_, pending_data_batch_, true);
-    
-    // 更新批次统计
-    size_t record_size = record.value.size() + sizeof(record.addr_slot) + sizeof(record.block_num) + 100; // 估算大小
-    current_batch_size_ += record_size;
-    current_batch_blocks_++;
-    batch_dirty_ = true;
-    
-    // 检查是否需要刷写 - Initial Load也需要batch控制，避免内存无限增长
-    if (should_flush_batch(record_size)) {
-        flush_pending_batches();
-    }
-}
 
 void DualRocksDBStrategy::flush_pending_batches() {
     if (!batch_dirty_ || current_batch_blocks_ == 0) {
@@ -665,4 +617,83 @@ void DualRocksDBStrategy::flush_pending_batches() {
     
     // 清理批次期间的range索引缓存
     batch_range_cache_.clear();
+}
+
+// ===== 重构后的写入辅助方法实现 =====
+
+DualRocksDBStrategy::RangeIndexUpdates 
+DualRocksDBStrategy::collect_range_updates_for_hotspot(const std::vector<DataRecord>& records) {
+    // 收集hotspot更新时需要的range index更新
+    RangeIndexUpdates updates;
+    
+    // 缓存已查询的ranges，避免重复查询
+    std::unordered_map<std::string, std::vector<uint32_t>> cached_ranges;
+    
+    for (const auto& record : records) {
+        uint32_t range_num = calculate_range(record.block_num);
+        
+        // 获取或查询当前的ranges
+        auto it = cached_ranges.find(record.addr_slot);
+        if (it == cached_ranges.end()) {
+            cached_ranges[record.addr_slot] = get_address_ranges(range_index_db_.get(), record.addr_slot);
+            it = cached_ranges.find(record.addr_slot);
+        }
+        
+        std::vector<uint32_t>& current_ranges = it->second;
+        
+        // 检查是否需要添加新的range
+        if (std::find(current_ranges.begin(), current_ranges.end(), range_num) == current_ranges.end()) {
+            current_ranges.push_back(range_num);
+            updates.ranges_to_update[record.addr_slot] = current_ranges;
+        }
+        
+        // 更新访问模式
+        if (cache_manager_) {
+            cache_manager_->update_access_pattern(record.addr_slot, true);
+        }
+    }
+    
+    return updates;
+}
+
+void DualRocksDBStrategy::add_data_to_batch(const std::vector<DataRecord>& records, 
+                                           rocksdb::WriteBatch& data_batch) {
+    // 将所有数据添加到data_batch
+    for (const auto& record : records) {
+        uint32_t range_num = calculate_range(record.block_num);
+        std::string data_key = build_data_key(range_num, record.addr_slot, record.block_num);
+        data_batch.Put(data_key, record.value);
+    }
+}
+
+void DualRocksDBStrategy::build_range_index_batch(const RangeIndexUpdates& updates, 
+                                                 rocksdb::WriteBatch& range_batch) {
+    // 构建range index更新batch
+    for (const auto& [addr_slot, ranges] : updates.ranges_to_update) {
+        std::string serialized = serialize_range_list(ranges);
+        range_batch.Put(addr_slot, serialized);
+    }
+}
+
+size_t DualRocksDBStrategy::calculate_block_size(const std::vector<DataRecord>& records) const {
+    // 计算一个block（即一个vector）的估算大小
+    size_t total_size = 0;
+    for (const auto& record : records) {
+        // 每个记录的大小 = value + key + block_num + 额外开销
+        total_size += record.value.size() + record.addr_slot.size() + 
+                     sizeof(record.block_num) + 100;
+    }
+    return total_size;
+}
+
+void DualRocksDBStrategy::add_block_to_pending_batch(const std::vector<DataRecord>& records, 
+                                                    size_t block_size) {
+    // 将整个block添加到pending batches
+    for (const auto& record : records) {
+        process_record_for_batch(record, pending_range_batch_, pending_data_batch_, true);
+    }
+    
+    // 更新批次统计
+    current_batch_size_ += block_size;
+    batch_dirty_ = true;
 }

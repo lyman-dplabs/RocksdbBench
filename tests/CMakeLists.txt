@@ -117,3 +117,37 @@ target_link_libraries(test_spdlog
         spdlog::spdlog
 )
 
+add_executable(test_record_size test_record_size.cpp)
+
+target_link_libraries(test_record_size
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        fmt::fmt
+)
+
+add_executable(test_dual_write_logic test_dual_write_logic.cpp)
+
+target_link_libraries(test_dual_write_logic
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        fmt::fmt
+)
+
+add_executable(test_refactor_integration test_refactor_integration.cpp)
+
+target_link_libraries(test_refactor_integration
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
+)
+

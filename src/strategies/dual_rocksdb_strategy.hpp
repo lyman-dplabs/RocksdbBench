@@ -146,18 +146,21 @@ private:
     // 批量写入管理
     void flush_pending_batches();
     bool should_flush_batch(size_t record_size) const;
-    void add_to_batch(const DataRecord& record);
     
     // 批量写入通用方法
     void process_record_for_batch(const DataRecord& record, rocksdb::WriteBatch& range_batch, rocksdb::WriteBatch& data_batch, bool is_initial_load);
     bool execute_batch_write(rocksdb::WriteBatch& range_batch, rocksdb::WriteBatch& data_batch, const char* operation_name);
     
-    // 批量写入通用模板
-    bool write_batch_with_processor(rocksdb::DB* db, const std::vector<DataRecord>& records, 
-                                   std::function<void(const DataRecord&)> processor, bool should_flush_batch = true);
+    // 重构后的写入辅助方法
+    struct RangeIndexUpdates {
+        std::unordered_map<std::string, std::vector<uint32_t>> ranges_to_update;
+    };
     
-    // Initial Load辅助方法
-    void add_to_initial_load_batch(const DataRecord& record);
+    RangeIndexUpdates collect_range_updates_for_hotspot(const std::vector<DataRecord>& records);
+    void add_data_to_batch(const std::vector<DataRecord>& records, rocksdb::WriteBatch& data_batch);
+    void build_range_index_batch(const RangeIndexUpdates& updates, rocksdb::WriteBatch& range_batch);
+    size_t calculate_block_size(const std::vector<DataRecord>& records) const;
+    void add_block_to_pending_batch(const std::vector<DataRecord>& records, size_t block_size);
     
     // 工具方法
     rocksdb::Options get_rocksdb_options(bool is_range_index = false) const;
