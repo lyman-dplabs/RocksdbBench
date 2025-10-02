@@ -90,16 +90,30 @@ int main(int argc, char* argv[]) {
         
         utils::log_info("Starting benchmark...");
         
-        runner.run_initial_load_phase();
-        
-        runner.run_hotspot_update_phase();
-        
-        // Collect real RocksDB statistics before reporting
-        runner.collect_rocksdb_statistics();
-        
-        metrics_collector->report_summary();
-        
-        utils::log_info("Benchmark completed successfully!");
+        if (config.continuous_mode) {
+            utils::log_info("Running in continuous update-query mode for {} minutes", 
+                           config.continuous_duration_minutes);
+            
+            // 运行初始加载
+            runner.run_initial_load_phase();
+            
+            // 运行连续更新查询循环
+            runner.run_continuous_update_query_loop(config.continuous_duration_minutes);
+            
+            utils::log_info("Continuous benchmark completed successfully!");
+        } else {
+            // 传统模式：初始加载 + 热点更新
+            runner.run_initial_load_phase();
+            
+            runner.run_hotspot_update_phase();
+            
+            // Collect real RocksDB statistics before reporting
+            runner.collect_rocksdb_statistics();
+            
+            metrics_collector->report_summary();
+            
+            utils::log_info("Standard benchmark completed successfully!");
+        }
         
     } catch (const ConfigError& e) {
         utils::log_error("Configuration error: {}", e.what());

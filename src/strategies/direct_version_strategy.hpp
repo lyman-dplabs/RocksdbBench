@@ -32,6 +32,11 @@ public:
     
     std::optional<Value> query_latest_value(rocksdb::DB* db, const std::string& addr_slot) override;
     
+  // 历史版本查询 - 实现复杂语义：≤target_version找最新，找不到则找≥的最小值
+  std::optional<Value> query_historical_version(rocksdb::DB* db, 
+                                               const std::string& addr_slot, 
+                                               BlockNum target_version) override;
+    
     std::string get_strategy_name() const override { return "direct_version"; }
     std::string get_description() const override { 
         return "Direct version storage: VERSION|addr_slot:block -> value"; 
@@ -63,6 +68,13 @@ private:
     std::optional<Value> find_value_by_version(rocksdb::DB* db, 
                                                 const std::string& version_key,
                                                 const std::string& addr_slot);
+    
+    std::optional<Value> find_value_by_version_with_block(rocksdb::DB* db, 
+                                                          const std::string& version_key,
+                                                          const std::string& addr_slot);
+    std::optional<Value> find_minimum_ge_version(rocksdb::DB* db, 
+                                                const std::string& addr_slot, 
+                                                BlockNum target_version);
     
     // 批量写入方法
     void add_to_batch(const DataRecord& record);

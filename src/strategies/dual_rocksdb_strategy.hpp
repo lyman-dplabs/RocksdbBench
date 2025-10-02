@@ -77,6 +77,11 @@ public:
     bool write_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) override;
     std::optional<Value> query_latest_value(rocksdb::DB* db, const std::string& addr_slot) override;
     
+  // 历史版本查询 - 实现复杂语义：≤target_version找最新，找不到则找≥的最小值
+  std::optional<Value> query_historical_version(rocksdb::DB* db, 
+                                               const std::string& addr_slot, 
+                                               BlockNum target_version) override;
+    
     // Initial Load专用接口 - 优化首次导入性能
     bool write_initial_load_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) override;
     
@@ -121,6 +126,18 @@ private:
                                                      uint32_t range_num, 
                                                      const std::string& addr_slot, 
                                                      BlockNum max_block = UINT64_MAX) const;
+    
+    // 新增：查找<=target_version的最新block（返回block_num和value）
+    std::optional<std::pair<BlockNum, Value>> find_latest_block_in_range_with_block(rocksdb::DB* db, 
+                                                                                    uint32_t range_num, 
+                                                                                    const std::string& addr_slot, 
+                                                                                    BlockNum max_block = UINT64_MAX) const;
+    
+    // 新增：查找>=target_version的最小block（用于历史版本查询）
+    std::optional<Value> find_minimum_block_in_range(rocksdb::DB* db, 
+                                                     uint32_t range_num, 
+                                                     const std::string& addr_slot, 
+                                                     BlockNum min_block = 0) const;
     
     // 范围管理
     bool update_range_index(rocksdb::DB* db, const std::string& addr_slot, uint32_t range_num);

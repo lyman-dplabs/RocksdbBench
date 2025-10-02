@@ -12,6 +12,7 @@ add_executable(test_performance_comparison test_performance_comparison.cpp)
 add_executable(test_direct_version_optimized test_direct_version_optimized.cpp)
 add_executable(test_direct_version_batch_config test_direct_version_batch_config.cpp)
 add_executable(test_spdlog test_spdlog.cpp)
+add_executable(test_historical_version_query test_historical_version_query.cpp)
 
 # Common test libraries
 target_link_libraries(test_quick_keyblock
@@ -127,6 +128,75 @@ target_link_libraries(test_direct_version_batch
         benchmark_lib
         utils_lib
         strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
+)
+
+add_executable(test_direct_version_simple test_direct_version_simple.cpp)
+
+target_link_libraries(test_direct_version_simple
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
+)
+
+add_executable(test_dual_batch_blocks test_dual_batch_blocks.cpp)
+
+target_link_libraries(test_dual_batch_blocks
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
+)
+
+add_executable(test_dual_block_size test_dual_block_size.cpp)
+
+target_link_libraries(test_dual_block_size
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
+)
+
+# Historical version query test
+target_link_libraries(test_historical_version_query
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
+)
+
+add_executable(test_direct_strategy_basic test_direct_strategy_basic.cpp)
+
+target_link_libraries(test_direct_strategy_basic
+    PRIVATE
+        core_lib
+        strategies_lib
+        utils_lib
+        RocksDB::rocksdb
+        fmt::fmt
+)
+
+add_executable(test_dual_strategy_basic test_dual_strategy_basic.cpp)
+
+target_link_libraries(test_dual_strategy_basic
+    PRIVATE
+        core_lib
+        strategies_lib
+        utils_lib
         RocksDB::rocksdb
         fmt::fmt
 )

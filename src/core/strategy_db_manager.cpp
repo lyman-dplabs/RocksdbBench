@@ -116,6 +116,20 @@ std::optional<Value> StrategyDBManager::query_latest_value(const std::string& ad
     }
 }
 
+std::optional<Value> StrategyDBManager::query_historical_version(const std::string& addr_slot, BlockNum target_version) {
+    if (!is_open_) {
+        utils::log_error("Database is not open");
+        return std::nullopt;
+    }
+
+    try {
+        // 调用strategy的历史版本查询方法
+        return strategy_->query_historical_version(db_.get(), addr_slot, target_version);
+    } catch (const std::exception& e) {
+        utils::log_error("Exception during query_historical_version: {}", e.what());
+        return std::nullopt;
+    }
+}
 
 bool StrategyDBManager::write_initial_load_batch(const std::vector<DataRecord>& records) {
     if (!is_open_) {

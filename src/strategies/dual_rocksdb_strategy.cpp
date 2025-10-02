@@ -176,6 +176,54 @@ std::optional<Value> DualRocksDBStrategy::query_latest_value(rocksdb::DB* db, co
     return find_latest_block_in_range(data_storage_db_.get(), latest_range, addr_slot);
 }
 
+std::optional<Value> DualRocksDBStrategy::query_historical_version(rocksdb::DB* db, 
+                                                                    const std::string& addr_slot, 
+                                                                    BlockNum target_version) {
+    // 实现复杂语义：≤target_version找最新，找不到则找≥的最小值
+    total_reads_++;
+    
+    std::vector<uint32_t> ranges = get_address_ranges(range_index_db_.get(), addr_slot);
+    if (ranges.empty()) {
+        return std::nullopt;
+    }
+    
+    // 计算target_version所在的range
+    uint32_t target_range = calculate_range(target_version);
+    
+    // 第一步：尝试在≤target_version的ranges中查找最新版本
+    std::optional<std::pair<BlockNum, Value>> best_result;
+    
+    for (uint32_t range_num : ranges) {
+        if (range_num > target_range) continue; // 跳过>target_range的范围
+        
+        auto result = find_latest_block_in_range_with_block(data_storage_db_.get(), range_num, addr_slot, target_version);
+        if (result.has_value()) {
+            if (!best_result.has_value() || result->first > best_result->first) {
+                best_result = result.value();
+            }
+        }
+    }
+    
+    if (best_result.has_value()) {
+        // 找到了≤target_version的最新版本
+        return std::to_string(best_result->first) + ":" + best_result->second;
+    }
+    
+    // 第二步：没找到≤target_version的版本，查找≥target_version的最小值
+    for (uint32_t range_num : ranges) {
+        if (range_num < target_range) continue; // 跳过<target_range的范围
+        
+        auto result = find_minimum_block_in_range(data_storage_db_.get(), range_num, addr_slot, target_version);
+        if (result.has_value()) {
+            return result; // 已经是"block_num:value"格式
+        }
+    }
+    
+    utils::log_debug("No version found for key {} at or around target version {}", 
+                     addr_slot.substr(0, 8), target_version);
+    return std::nullopt;
+}
+
 
 bool DualRocksDBStrategy::cleanup(rocksdb::DB* db) {
     // 刷写所有待写入的批次
@@ -303,6 +351,55 @@ std::optional<Value> DualRocksDBStrategy::find_latest_block_in_range(rocksdb::DB
                 // 直接从iterator获取value，避免额外的数据库查询
                 rocksdb::Slice value_slice = it->value();
                 return std::string(value_slice.data(), value_slice.size());
+            }
+        }
+        
+        // 如果key已经小于prefix，说明没有更匹配的key了
+        if (key_view < prefix) {
+            break;
+        }
+        
+        it->Prev();
+    }
+    
+    return std::nullopt;
+}
+
+std::optional<std::pair<BlockNum, Value>> DualRocksDBStrategy::find_latest_block_in_range_with_block(rocksdb::DB* db, 
+                                                                                                uint32_t range_num, 
+                                                                                                const std::string& addr_slot, 
+                                                                                                BlockNum max_block) const {
+    std::string prefix = "R" + std::to_string(range_num) + "|" + addr_slot + "|";
+    
+    rocksdb::ReadOptions options;
+    std::unique_ptr<rocksdb::Iterator> it(db->NewIterator(options));
+    
+    // 计算当前范围的最大块号，避免传递的max_block超出当前范围
+    BlockNum range_max_block = (range_num + 1) * config_.range_size - 1;
+    BlockNum effective_max_block = std::min(max_block, range_max_block);
+    
+    // 构造target key: R{range_num}|{addr_slot}|{effective_max_block} (使用10位零填充)
+    std::string max_block_str = std::to_string(effective_max_block);
+    if (max_block_str.length() < 10) {
+        max_block_str.insert(0, 10 - max_block_str.length(), '0');
+    }
+    std::string target_key = prefix + max_block_str;
+    
+    // 使用SeekForPrev直接定位到<=target_key的最大key
+    it->SeekForPrev(rocksdb::Slice(target_key));
+    
+    while (it->Valid()) {
+        rocksdb::Slice current_key = it->key();
+        std::string_view key_view(current_key.data(), current_key.size());
+        
+        // 检查key是否以正确的prefix开头（使用string_view避免复制）
+        if (key_view.substr(0, prefix.length()) == prefix) {
+            // 找到了匹配的key，解析block_number
+            BlockNum found_block = extract_block_from_key(std::string(key_view));
+            if (found_block <= max_block) {
+                // 直接从iterator获取value，避免额外的数据库查询
+                rocksdb::Slice value_slice = it->value();
+                return std::make_pair(found_block, std::string(value_slice.data(), value_slice.size()));
             }
         }
         
@@ -696,4 +793,51 @@ void DualRocksDBStrategy::add_block_to_pending_batch(const std::vector<DataRecor
     // 更新批次统计
     current_batch_size_ += block_size;
     batch_dirty_ = true;
+}
+
+// ===== 新增的历史版本查询辅助方法 =====
+
+std::optional<Value> DualRocksDBStrategy::find_minimum_block_in_range(rocksdb::DB* db, 
+                                                                      uint32_t range_num, 
+                                                                      const std::string& addr_slot, 
+                                                                      BlockNum min_block) const {
+    std::string prefix = "R" + std::to_string(range_num) + "|" + addr_slot + "|";
+    
+    // 构造最小可能的key
+    std::string min_block_str = std::to_string(min_block);
+    if (min_block_str.length() < 10) {
+        min_block_str.insert(0, 10 - min_block_str.length(), '0');
+    }
+    std::string target_key = prefix + min_block_str;
+    
+    rocksdb::ReadOptions options;
+    std::unique_ptr<rocksdb::Iterator> it(db->NewIterator(options));
+    
+    // Seek到target_key，找到>=target_key的第一个key
+    it->Seek(target_key);
+    
+    while (it->Valid()) {
+        rocksdb::Slice current_key = it->key();
+        std::string_view key_view(current_key.data(), current_key.size());
+        
+        // 检查key是否以正确的prefix开头
+        if (key_view.substr(0, prefix.length()) == prefix) {
+            // 找到了>=min_block的最小key
+            rocksdb::Slice value_slice = it->value();
+            std::string value = value_slice.ToString();
+            
+            // 提取block_num
+            BlockNum found_block = extract_block_from_key(std::string(key_view));
+            return std::to_string(found_block) + ":" + value;
+        }
+        
+        // 如果key已经大于prefix（即到了下一个address），说明没有找到
+        if (key_view < prefix) {
+            break;
+        }
+        
+        it->Next();
+    }
+    
+    return std::nullopt;
 }

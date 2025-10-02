@@ -121,6 +121,22 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
       ->default_val(4UL * 1024 * 1024 * 1024)
       ->check(CLI::PositiveNumber);
 
+  // 历史版本查询测试选项组
+  auto *continuous_group = app.add_option_group(
+      "Continuous Update-Query Mode",
+      "Options for historical version query testing with continuous update-query loop");
+
+  continuous_group
+      ->add_flag("--continuous-mode", config.continuous_mode,
+                 "Enable continuous update-query mode for historical version testing")
+      ->default_val(false);
+
+  continuous_group
+      ->add_option("--continuous-duration", config.continuous_duration_minutes,
+                   "Duration in minutes for continuous update-query mode (default: 360 minutes = 6 hours)")
+      ->default_val(360)
+      ->check(CLI::PositiveNumber);
+
   
   // 位置参数
   app.add_option("db_path_pos", config.db_path,

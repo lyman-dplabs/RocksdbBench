@@ -24,6 +24,9 @@ public:
     bool write_batch(const std::vector<DataRecord>& records);
     std::optional<Value> query_latest_value(const std::string& addr_slot);
     
+    // 历史版本查询接口 - 用于苛刻测试
+    std::optional<Value> query_historical_version(const std::string& addr_slot, BlockNum target_version);
+    
     // Initial Load专用接口 - 优化首次导入性能
     bool write_initial_load_batch(const std::vector<DataRecord>& records);
     

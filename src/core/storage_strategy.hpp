@@ -41,6 +41,14 @@ public:
     virtual std::optional<Value> query_latest_value(rocksdb::DB* db, 
                                                    const std::string& addr_slot) = 0;
     
+    // 历史版本查询 - 苛刻测试用，实现复杂语义
+    virtual std::optional<Value> query_historical_version(rocksdb::DB* db, 
+                                                         const std::string& addr_slot, 
+                                                         BlockNum target_version) {
+        // 默认实现：返回最新值（用于不支持历史版本的策略）
+        return query_latest_value(db, addr_slot);
+    }
+    
     // 策略信息
     virtual std::string get_strategy_name() const = 0;
     virtual std::string get_description() const = 0;

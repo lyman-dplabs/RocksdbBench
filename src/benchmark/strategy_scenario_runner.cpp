@@ -2,6 +2,10 @@
 #include "../utils/logger.hpp"
 #include <random>
 #include <algorithm>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+#include <numeric>
 
 StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager> db_manager, 
                                              std::shared_ptr<MetricsCollector> metrics,
@@ -110,6 +114,7 @@ void StrategyScenarioRunner::run_initial_load_phase() {
     
     // Record the actual end block for realistic queries
     initial_load_end_block_ = current_block;
+    current_max_block_ = current_block - 1; // Update current max block
     utils::log_info("Initial load phase completed. Total blocks written: {}, keys tracked: {}", 
                    initial_load_end_block_, total_keys);
 }
@@ -289,4 +294,223 @@ void StrategyScenarioRunner::collect_rocksdb_statistics() {
 
 std::string StrategyScenarioRunner::get_current_strategy() const {
     return db_manager_->get_strategy_name();
+}
+
+// ===== 新的实现：连续更新查询循环 =====
+
+void StrategyScenarioRunner::run_continuous_update_query_loop(size_t duration_minutes) {
+    utils::log_info("Starting continuous update-query loop for {} minutes...", duration_minutes);
+    
+    perf_metrics_.start_time = std::chrono::steady_clock::now();
+    auto end_time = perf_metrics_.start_time + std::chrono::minutes(duration_minutes);
+    
+    size_t block_num = config_.initial_records / 10000; // 从初始加载结束后的block开始
+    size_t batch_size = std::min(10000UL, config_.hotspot_updates);
+    size_t update_count = 0;
+    
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    
+    while (std::chrono::steady_clock::now() < end_time) {
+        // 每次处理一个block（batch）
+        run_single_block_update_query(block_num);
+        
+        block_num++;
+        update_count++;
+        current_max_block_ = block_num;
+        
+        // 每1000次更新输出进度（减少日志频率）
+        if (update_count % 1000 == 0) {
+            auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(
+                std::chrono::steady_clock::now() - perf_metrics_.start_time).count();
+            utils::log_info("Progress: {} updates completed, {} minutes elapsed", 
+                           update_count, elapsed);
+        }
+    }
+    
+    perf_metrics_.end_time = std::chrono::steady_clock::now();
+    auto total_duration = std::chrono::duration_cast<std::chrono::seconds>(
+        perf_metrics_.end_time - perf_metrics_.start_time).count();
+    
+    utils::log_info("Continuous update-query loop completed. Total updates: {}, Duration: {} seconds", 
+                   update_count, total_duration);
+    
+    // 打印性能统计
+    perf_metrics_.print_statistics();
+}
+
+void StrategyScenarioRunner::run_single_block_update_query(size_t block_num) {
+    const auto& all_keys = data_generator_->get_all_keys();
+    if (all_keys.empty()) {
+        utils::log_error("No keys available for update-query operations");
+        return;
+    }
+    
+    // 1. 准备更新数据
+    size_t batch_size = std::min(10000UL, config_.hotspot_updates);
+    auto update_indices = data_generator_->generate_hotspot_update_indices(batch_size);
+    auto random_values = data_generator_->generate_random_values(update_indices.size());
+    
+    std::vector<DataRecord> records;
+    records.reserve(update_indices.size());
+    
+    for (size_t i = 0; i < update_indices.size(); ++i) {
+        size_t idx = update_indices[i];
+        if (idx >= all_keys.size()) continue;
+        
+        DataRecord record{
+            block_num,              // block_num
+            all_keys[idx],          // addr_slot
+            random_values[i]        // value
+        };
+        records.push_back(record);
+    }
+    
+    // 2. 执行更新并测量耗时
+    auto write_start = std::chrono::high_resolution_clock::now();
+    bool success = db_manager_->write_batch(records);
+    auto write_end = std::chrono::high_resolution_clock::now();
+    
+    double write_latency_ms = std::chrono::duration<double, std::milli>(write_end - write_start).count();
+    perf_metrics_.write_latencies_ms.push_back(write_latency_ms);
+    
+    if (!success) {
+        utils::log_error("Failed to write batch at block {}", block_num);
+        return;
+    }
+    
+    // 3. 立即执行历史版本查询（记录整个block的查询时延）
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<size_t> key_dist(0, all_keys.size() - 1);
+    std::uniform_int_distribution<BlockNum> version_dist(0, current_max_block_);
+    
+    // 每次更新后进行多个随机历史查询
+    const size_t queries_per_update = 5;
+    size_t successful_queries = 0;
+    
+    // 记录整个block查询的开始时间
+    auto block_query_start = std::chrono::high_resolution_clock::now();
+    
+    for (size_t i = 0; i < queries_per_update; ++i) {
+        size_t key_idx = key_dist(gen);
+        BlockNum target_version = version_dist(gen);
+        const std::string& key = all_keys[key_idx];
+        
+        auto query_result = query_historical_version(key, target_version);
+        
+        if (query_result.found) {
+            successful_queries++;
+        }
+        
+        // 只记录失败的查询（减少日志量）
+        if (!query_result.found) {
+            utils::log_debug("QUERY_FAILED: key={}, target_version={}, latency_ms={:.3f}",
+                           key.substr(0, 8), target_version, query_result.latency_ms);
+        }
+    }
+    
+    // 记录整个block的查询时延
+    auto block_query_end = std::chrono::high_resolution_clock::now();
+    double block_query_latency_ms = std::chrono::duration<double, std::milli>(block_query_end - block_query_start).count();
+    
+    // 记录block级别的查询统计
+    utils::log_info("BLOCK_QUERY_STATS: queries={}, successful={}, block_latency_ms={:.3f}",
+                   queries_per_update, successful_queries, block_query_latency_ms);
+    
+    // 将block级别的查询时延添加到性能统计中
+    perf_metrics_.query_latencies_ms.push_back(block_query_latency_ms);
+    
+    // 4. 记录性能指标（便于grep/awk处理）
+    log_performance_metrics("WRITE_BATCH", write_latency_ms);
+}
+
+StrategyScenarioRunner::QueryResult StrategyScenarioRunner::query_historical_version(const std::string& addr_slot, BlockNum target_version) {
+    auto query_start = std::chrono::high_resolution_clock::now();
+    
+    // 调用底层strategy的查询接口
+    auto result = db_manager_->query_historical_version(addr_slot, target_version);
+    
+    auto query_end = std::chrono::high_resolution_clock::now();
+    double latency_ms = std::chrono::duration<double, std::milli>(query_end - query_start).count();
+    
+    perf_metrics_.query_latencies_ms.push_back(latency_ms);
+    
+    QueryResult query_result;
+    query_result.found = result.has_value();
+    query_result.latency_ms = latency_ms;
+    
+    if (result.has_value()) {
+        // 解析返回的结果（假设格式为 "block_num:value"）
+        auto colon_pos = result->find(':');
+        if (colon_pos != std::string::npos) {
+            query_result.block_num = std::stoull(result->substr(0, colon_pos));
+            query_result.value = result->substr(colon_pos + 1);
+        } else {
+            query_result.block_num = target_version;
+            query_result.value = *result;
+        }
+    }
+    
+    return query_result;
+}
+
+void StrategyScenarioRunner::log_performance_metrics(const std::string& operation_type, double latency_ms) {
+    // 只记录每次写入性能，但可以考虑进一步减少频率
+    static size_t write_counter = 0;
+    write_counter++;
+    
+    // 每100次写入记录一次性能指标（减少日志量）
+    if (write_counter % 100 == 0) {
+        auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - perf_metrics_.start_time).count();
+        
+        utils::log_info("PERF_METRIC: timestamp_ms={}, operation={}, latency_ms={:.6f}", 
+                       timestamp, operation_type, latency_ms);
+    }
+}
+
+// ===== 性能统计实现 =====
+
+void StrategyScenarioRunner::PerformanceMetrics::print_statistics() const {
+    if (write_latencies_ms.empty() && query_latencies_ms.empty()) {
+        utils::log_info("No performance data to report");
+        return;
+    }
+    
+    auto calculate_stats = [](const std::vector<double>& latencies, const std::string& type) {
+        if (latencies.empty()) return;
+        
+        std::vector<double> sorted_latencies = latencies;
+        std::sort(sorted_latencies.begin(), sorted_latencies.end());
+        
+        double sum = std::accumulate(latencies.begin(), latencies.end(), 0.0);
+        double avg = sum / latencies.size();
+        
+        double p50 = sorted_latencies[sorted_latencies.size() * 0.5];
+        double p95 = sorted_latencies[sorted_latencies.size() * 0.95];
+        double p99 = sorted_latencies[sorted_latencies.size() * 0.99];
+        double max = sorted_latencies.back();
+        double min = sorted_latencies.front();
+        
+        utils::log_info("=== {} Performance Statistics ===", type);
+        utils::log_info("Count: {}", latencies.size());
+        utils::log_info("Average: {:.3f} ms", avg);
+        utils::log_info("Min: {:.3f} ms", min);
+        utils::log_info("Max: {:.3f} ms", max);
+        utils::log_info("P50: {:.3f} ms", p50);
+        utils::log_info("P95: {:.3f} ms", p95);
+        utils::log_info("P99: {:.3f} ms", p99);
+    };
+    
+    calculate_stats(write_latencies_ms, "WRITE_BATCH");
+    calculate_stats(query_latencies_ms, "HISTORICAL_QUERY");
+    
+    auto total_duration = std::chrono::duration_cast<std::chrono::seconds>(
+        end_time - start_time).count();
+    utils::log_info("Total test duration: {} seconds", total_duration);
+    utils::log_info("Write ops per second: {:.2f}", 
+                   static_cast<double>(write_latencies_ms.size()) / total_duration);
+    utils::log_info("Query ops per second: {:.2f}", 
+                   static_cast<double>(query_latencies_ms.size()) / total_duration);
 }

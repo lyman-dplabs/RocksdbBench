@@ -38,6 +38,10 @@ struct BenchmarkConfig {
     uint32_t direct_version_batch_size = 5;          // 每个WriteBatch写入的块数
     size_t direct_version_max_batch_bytes = 4UL * 1024 * 1024 * 1024; // 最大批次大小4GB
     
+    // 新的历史版本查询测试参数
+    bool continuous_mode = false;                    // 连续更新查询模式
+    size_t continuous_duration_minutes = 360;        // 连续运行时间（分钟，默认6小时）
+    
     // 静态方法
     static BenchmarkConfig from_args(int argc, char* argv[]);
     static BenchmarkConfig from_file(const std::string& config_path);

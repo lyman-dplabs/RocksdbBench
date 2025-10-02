@@ -137,6 +137,34 @@ std::optional<Value> DirectVersionStrategy::query_latest_value(rocksdb::DB* db, 
     return find_value_by_version(db, max_version_key, addr_slot);
 }
 
+std::optional<Value> DirectVersionStrategy::query_historical_version(rocksdb::DB* db, 
+                                                                    const std::string& addr_slot, 
+                                                                    BlockNum target_version) {
+    // 实现复杂语义：≤target_version找最新，找不到则找≥的最小值
+    
+    // 第一步：尝试查找≤target_version的最新版本，同时获取实际的block_num
+    std::string target_key = build_version_key(addr_slot, target_version);
+    auto result_with_block = find_value_by_version_with_block(db, target_key, addr_slot);
+    
+    if (result_with_block.has_value()) {
+        // 找到了≤target_version的版本，返回"block_num:value"格式
+        return result_with_block;
+    }
+    
+    // 第二步：没找到≤target_version的版本，查找≥target_version的最小值
+    utils::log_debug("No version <= {} found for key {}, searching for >= minimum", 
+                     target_version, addr_slot.substr(0, 8));
+    
+    auto next_result = find_minimum_ge_version(db, addr_slot, target_version);
+    if (next_result.has_value()) {
+        return next_result;
+    }
+    
+    utils::log_debug("No version found for key {} at or around target version {}", 
+                     addr_slot.substr(0, 8), target_version);
+    return std::nullopt;
+}
+
 
 std::string DirectVersionStrategy::build_version_key(const std::string& addr_slot, BlockNum version) const {
     // 构建版本索引key: VERSION|address_slot:version
@@ -170,6 +198,59 @@ std::optional<Value> DirectVersionStrategy::find_value_by_version(rocksdb::DB* d
         if (current_key_str.find(expected_prefix) == 0) {
             // 找到了匹配的key，直接返回value
             return it->value().ToString();
+        }
+        
+        // 如果key已经小于VERSION|addr_slot，说明没有找到
+        if (current_key_str < expected_prefix) {
+            break;
+        }
+        
+        it->Prev();
+    }
+    
+    return std::nullopt;
+}
+
+std::optional<Value> DirectVersionStrategy::find_value_by_version_with_block(rocksdb::DB* db, 
+                                                                            const std::string& version_key,
+                                                                            const std::string& addr_slot) {
+    // 使用RocksDB的Seek功能找到<=version_key的最大版本，返回"block_num:value"格式
+    rocksdb::ReadOptions read_options;
+    auto it = std::unique_ptr<rocksdb::Iterator>(db->NewIterator(read_options));
+    
+    it->Seek(version_key);
+    
+    // 如果seek超出了范围，从最后一个开始
+    if (!it->Valid()) {
+        it->SeekToLast();
+    }
+    
+    while (it->Valid()) {
+        rocksdb::Slice current_key = it->key();
+        std::string current_key_str = current_key.ToString();
+        
+        // 检查key是否以VERSION|addr_slot:开头
+        std::string expected_prefix = "VERSION|" + addr_slot + ":";
+        if (current_key_str.find(expected_prefix) == 0) {
+            // 找到了匹配的key，提取block_num并检查是否<=target_version
+            size_t colon_pos = current_key_str.rfind(':');
+            if (colon_pos != std::string::npos) {
+                std::string block_str = current_key_str.substr(colon_pos + 1);
+                BlockNum block_num = std::stoull(block_str);
+                
+                // 从version_key中提取target_version进行比较
+                size_t target_colon_pos = version_key.rfind(':');
+                BlockNum target_version = std::stoull(version_key.substr(target_colon_pos + 1));
+                
+                if (block_num <= target_version) {
+                    // 找到了<=target_version的版本
+                    return std::to_string(block_num) + ":" + it->value().ToString();
+                } else {
+                    // 当前的block_num > target_version，需要继续向前找
+                    it->Prev();
+                    continue;
+                }
+            }
         }
         
         // 如果key已经小于VERSION|addr_slot，说明没有找到
@@ -329,4 +410,51 @@ void DirectVersionStrategy::flush_all_batches() {
     } else {
         utils::log_info("No pending DirectVersion batches to flush");
     }
+}
+
+// ===== 新增的历史版本查询辅助方法 =====
+
+
+std::optional<Value> DirectVersionStrategy::find_minimum_ge_version(rocksdb::DB* db, 
+                                                                   const std::string& addr_slot, 
+                                                                   BlockNum target_version) {
+    // 查找≥target_version的最小版本
+    
+    std::string prefix = "VERSION|" + addr_slot + ":";
+    std::string target_key = build_version_key(addr_slot, target_version);
+    
+    rocksdb::ReadOptions read_options;
+    auto it = std::unique_ptr<rocksdb::Iterator>(db->NewIterator(read_options));
+    
+    it->Seek(target_key);
+    
+    // SeekForPrev会找到<=target_key的，我们需要>=的，所以用Seek
+    if (!it->Valid()) {
+        // 如果seek到了最后，说明没有≥target_version的版本
+        return std::nullopt;
+    }
+    
+    // 检查第一个有效的key是否≥target_version
+    rocksdb::Slice current_key = it->key();
+    std::string current_key_str = current_key.ToString();
+    
+    if (current_key_str.find(prefix) == 0) {
+        // 这个key就是≥target_version的最小版本
+        rocksdb::Slice value_slice = it->value();
+        auto value = value_slice.ToString();
+        
+        // 提取block_num
+        size_t colon_pos = current_key_str.rfind(':');
+        if (colon_pos != std::string::npos) {
+            std::string block_str = current_key_str.substr(colon_pos + 1);
+            auto block_num = std::stoull(block_str);
+            return std::to_string(block_num) + ":" + value;
+        }
+        
+        return value;
+    }
+    
+    // 如果第一个key不匹配prefix，可能需要向前或向后查找
+    utils::log_debug("First key after seek doesn't match prefix: {}", current_key_str);
+    return std::nullopt;
 }
