@@ -63,6 +63,10 @@ bool DirectVersionStrategy::write_initial_load_batch(rocksdb::DB* db, const std:
     // Initial load模式：积累多个blocks，达到batch限制后统一写入
     utils::log_debug("write_initial_load_batch: Processing {} records as 1 block", records.size());
     
+    // 打印当前配置信息
+    utils::log_info("DirectVersion batch config: batch_size_blocks={}, max_batch_size_bytes={} MB", 
+                    config_.batch_size_blocks, config_.max_batch_size_bytes / (1024 * 1024));
+    
     std::lock_guard<std::mutex> lock(batch_mutex_);
     
     // 计算这个block的大小
