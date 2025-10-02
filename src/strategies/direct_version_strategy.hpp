@@ -31,10 +31,6 @@ public:
     
     std::optional<Value> query_latest_value(rocksdb::DB* db, const std::string& addr_slot) override;
     
-    std::optional<Value> query_historical_value(rocksdb::DB* db, 
-                                               const std::string& addr_slot, 
-                                               BlockNum target_block) override;
-    
     std::string get_strategy_name() const override { return "direct_version"; }
     std::string get_description() const override { 
         return "Direct version storage: VERSION|addr_slot:block -> value"; 

@@ -22,6 +22,7 @@ bool DirectVersionStrategy::create_column_families(rocksdb::DB* db) {
     utils::log_info("DirectVersionStrategy initialized - using key prefixes instead of column families");
     utils::log_info("Batch configuration: {} blocks per batch, {} bytes max", 
                     config_.batch_size_blocks, config_.max_batch_size_bytes);
+    utils::log_info("Using storage strategy: {}", get_strategy_name());
     return true;
 }
 
@@ -83,15 +84,6 @@ std::optional<Value> DirectVersionStrategy::query_latest_value(rocksdb::DB* db, 
     return find_value_by_version(db, max_version_key, addr_slot);
 }
 
-std::optional<Value> DirectVersionStrategy::query_historical_value(rocksdb::DB* db, 
-                                                                 const std::string& addr_slot, 
-                                                                 BlockNum target_block) {
-    // 构建目标版本key用于seek
-    std::string target_version_key = build_version_key(addr_slot, target_block);
-    
-    // 直接查找<=target_block的最大版本，返回value
-    return find_value_by_version(db, target_version_key, addr_slot);
-}
 
 std::string DirectVersionStrategy::build_version_key(const std::string& addr_slot, BlockNum version) {
     // 构建版本索引key: VERSION|address_slot:version

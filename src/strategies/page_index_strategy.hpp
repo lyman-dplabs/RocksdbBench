@@ -40,9 +40,6 @@ public:
     bool initialize(rocksdb::DB* db) override;
     bool write_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) override;
     std::optional<Value> query_latest_value(rocksdb::DB* db, const std::string& addr_slot) override;
-    std::optional<Value> query_historical_value(rocksdb::DB* db, 
-                                               const std::string& addr_slot, 
-                                               BlockNum target_block) override;
     
     std::string get_strategy_name() const override { return "page_index"; }
     std::string get_description() const override { 

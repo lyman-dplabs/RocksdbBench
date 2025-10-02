@@ -23,7 +23,6 @@ public:
     // 新的统一接口
     bool write_batch(const std::vector<DataRecord>& records);
     std::optional<Value> query_latest_value(const std::string& addr_slot);
-    std::optional<Value> query_historical_value(const std::string& addr_slot, BlockNum target_block);
     
     // Initial Load专用接口 - 优化首次导入性能
     bool write_initial_load_batch(const std::vector<DataRecord>& records);

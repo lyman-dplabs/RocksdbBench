@@ -76,9 +76,6 @@ public:
     bool initialize(rocksdb::DB* main_db) override;
     bool write_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) override;
     std::optional<Value> query_latest_value(rocksdb::DB* db, const std::string& addr_slot) override;
-    std::optional<Value> query_historical_value(rocksdb::DB* db, 
-                                               const std::string& addr_slot, 
-                                               BlockNum target_block) override;
     
     // Initial Load专用接口 - 优化首次导入性能
     bool write_initial_load_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) override;

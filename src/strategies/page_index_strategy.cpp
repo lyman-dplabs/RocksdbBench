@@ -15,6 +15,7 @@ bool PageIndexStrategy::initialize(rocksdb::DB* db) {
     // For PageIndexStrategy, we use the default column family
     // The existing logic works with the default RocksDB setup
     utils::log_info("PageIndexStrategy initialized - using default column family");
+    utils::log_info("Using storage strategy: {}", get_strategy_name());
     return true;
 }
 
@@ -48,12 +49,6 @@ std::optional<Value> PageIndexStrategy::query_latest_value(rocksdb::DB* db, cons
     return get_historical_state(db, addr_slot, *latest_block);
 }
 
-std::optional<Value> PageIndexStrategy::query_historical_value(rocksdb::DB* db, 
-                                                              const std::string& addr_slot, 
-                                                              BlockNum target_block) {
-    // Direct use of existing logic
-    return get_historical_state(db, addr_slot, target_block);
-}
 
 bool PageIndexStrategy::cleanup(rocksdb::DB* db) {
     // No special cleanup needed for PageIndexStrategy

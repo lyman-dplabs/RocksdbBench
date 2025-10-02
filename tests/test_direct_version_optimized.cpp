@@ -97,21 +97,8 @@ int main() {
         }
         std::cout << "✓ Successfully wrote " << update_data.size() << " update records" << std::endl;
         
-        // Test historical queries for specific blocks
-        for (size_t i = 0; i < 5; ++i) {
-            std::string addr_slot = "test_addr_" + std::to_string(i);
-            BlockNum target_block = i * 10; // Early block should return initial value
-            
-            auto result = db_manager->query_historical_value(addr_slot, target_block);
-            if (result) {
-                hist_query_success++;
-                std::cout << "  ✓ Historical value for " << addr_slot << " at block " 
-                         << target_block << ": " << *result << std::endl;
-            } else {
-                std::cout << "  ✗ No historical value found for " << addr_slot 
-                         << " at block " << target_block << std::endl;
-            }
-        }
+        // Note: Historical queries have been removed from the interface
+        std::cout << "  ✓ Historical queries are no longer supported" << std::endl;
         
         // Test 3: Query non-existent keys
         std::cout << "\n=== Test 3: Non-existent Key Queries ===" << std::endl;
@@ -122,12 +109,8 @@ int main() {
             std::cout << "✗ Unexpectedly found value for non-existent key: " << *non_existent_result << std::endl;
         }
         
-        auto non_existent_hist = db_manager->query_historical_value("non_existent_addr", 100);
-        if (!non_existent_hist) {
-            std::cout << "✓ Correctly returned nullopt for non-existent historical key" << std::endl;
-        } else {
-            std::cout << "✗ Unexpectedly found historical value for non-existent key: " << *non_existent_hist << std::endl;
-        }
+        // Historical queries are no longer supported
+        std::cout << "✓ Historical queries for non-existent keys skipped" << std::endl;
         
         // Cleanup
         std::cout << "\n=== Cleanup ===" << std::endl;

@@ -57,6 +57,11 @@ bool StrategyDBManager::open(bool force_clean) {
 
 void StrategyDBManager::close() {
     if (is_open_) {
+        // Cleanup strategy resources
+        if (strategy_) {
+            strategy_->cleanup(db_.get());
+        }
+        
         db_.reset();
         is_open_ = false;
         utils::log_info("Database closed");
@@ -111,20 +116,6 @@ std::optional<Value> StrategyDBManager::query_latest_value(const std::string& ad
     }
 }
 
-std::optional<Value> StrategyDBManager::query_historical_value(const std::string& addr_slot, 
-                                                              BlockNum target_block) {
-    if (!is_open_) {
-        utils::log_error("Database is not open");
-        return std::nullopt;
-    }
-
-    try {
-        return strategy_->query_historical_value(db_.get(), addr_slot, target_block);
-    } catch (const std::exception& e) {
-        utils::log_error("Exception during query_historical_value: {}", e.what());
-        return std::nullopt;
-    }
-}
 
 bool StrategyDBManager::write_initial_load_batch(const std::vector<DataRecord>& records) {
     if (!is_open_) {
@@ -166,7 +157,8 @@ bool StrategyDBManager::write_batch(const std::vector<ChangeSetRecord>& changes,
 
 std::optional<Value> StrategyDBManager::get_historical_state(const std::string& addr_slot, 
                                                            BlockNum target_block_num) {
-    return query_historical_value(addr_slot, target_block_num);
+    // Historical queries are not supported anymore
+    return std::nullopt;
 }
 
 rocksdb::Options StrategyDBManager::get_db_options() {

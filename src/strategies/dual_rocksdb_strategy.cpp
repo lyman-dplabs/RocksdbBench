@@ -49,6 +49,7 @@ bool DualRocksDBStrategy::initialize(rocksdb::DB* main_db) {
     }
     
     log_info("DualRocksDBStrategy initialized with range-based partitioning");
+    log_info("Using storage strategy: {}", get_strategy_name());
     return true;
 }
 
@@ -174,53 +175,6 @@ std::optional<Value> DualRocksDBStrategy::query_latest_value(rocksdb::DB* db, co
     return find_latest_block_in_range(data_storage_db_.get(), latest_range, addr_slot);
 }
 
-std::optional<Value> DualRocksDBStrategy::query_historical_value(rocksdb::DB* db, 
-                                                                   const std::string& addr_slot, 
-                                                                   BlockNum target_block) {
-    total_reads_++;
-    
-    // 参考PageIndexStrategy的逻辑：只查询目标范围
-    uint32_t target_range = calculate_range(target_block);
-    
-    // 检查目标范围是否包含该地址的数据
-    std::vector<uint32_t> ranges = get_address_ranges(range_index_db_.get(), addr_slot);
-    if (ranges.empty()) {
-        return std::nullopt;
-    }
-    
-    // 检查目标范围是否在地址的范围内
-    if (std::find(ranges.begin(), ranges.end(), target_range) == ranges.end()) {
-        // 如果目标范围没有数据，找到小于目标范围的最大范围
-        uint32_t max_valid_range = 0;
-        bool found_range = false;
-        
-        for (uint32_t range : ranges) {
-            if (range <= target_range && range > max_valid_range) {
-                max_valid_range = range;
-                found_range = true;
-            }
-        }
-        
-        if (!found_range) {
-            return std::nullopt;
-        }
-        
-        target_range = max_valid_range;
-    }
-    
-    // 在目标范围内找到 <= target_block 的最大值
-    auto result = find_latest_block_in_range(data_storage_db_.get(), target_range, addr_slot, target_block);
-    
-    // 如果在目标范围内没找到，尝试在之前的范围中查找
-    while (!result && target_range > 0) {
-        target_range--;
-        if (std::find(ranges.begin(), ranges.end(), target_range) != ranges.end()) {
-            result = find_latest_block_in_range(data_storage_db_.get(), target_range, addr_slot, target_block);
-        }
-    }
-    
-    return result;
-}
 
 bool DualRocksDBStrategy::cleanup(rocksdb::DB* db) {
     // 刷写所有待写入的批次

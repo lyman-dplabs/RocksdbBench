@@ -183,19 +183,8 @@ int main() {
         std::cout << "\n=== Test 5: Historical Query Test ===" << std::endl;
         size_t hist_query_success = 0;
         
-        // Query for values at specific historical blocks
-        for (size_t i = 0; i < 10; ++i) {
-            size_t addr_idx = i * 100; // Sample every 100th address
-            std::string addr_slot = "addr_" + std::to_string(addr_idx);
-            BlockNum target_block = addr_idx; // Should return initial value
-            
-            auto result = db_manager->query_historical_value(addr_slot, target_block);
-            if (result && result->find("value_") == 0 && result->find("updated_") == std::string::npos) {
-                hist_query_success++;
-            }
-        }
-        
-        std::cout << "✓ Historical query success rate: " << hist_query_success << "/10" << std::endl;
+        // Note: Historical queries have been removed from the interface
+        std::cout << "✓ Historical queries are no longer supported" << std::endl;
         
         // Cleanup
         std::cout << "\n=== Cleanup ===" << std::endl;

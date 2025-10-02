@@ -41,11 +41,6 @@ public:
     virtual std::optional<Value> query_latest_value(rocksdb::DB* db, 
                                                    const std::string& addr_slot) = 0;
     
-    // 查询历史值
-    virtual std::optional<Value> query_historical_value(rocksdb::DB* db, 
-                                                       const std::string& addr_slot, 
-                                                       BlockNum target_block) = 0;
-    
     // 策略信息
     virtual std::string get_strategy_name() const = 0;
     virtual std::string get_description() const = 0;
