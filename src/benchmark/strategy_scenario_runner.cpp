@@ -3,8 +3,6 @@
 #include <random>
 #include <algorithm>
 #include <chrono>
-#include <iomanip>
-#include <sstream>
 #include <numeric>
 
 StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager> db_manager, 
@@ -12,12 +10,12 @@ StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager
                                              const BenchmarkConfig& config)
     : db_manager_(db_manager), metrics_collector_(metrics), config_(config) {
     
-    // 使用配置中的参数设置 DataGenerator
+    // 使用简化的配置设置 DataGenerator
     DataGenerator::Config data_config;
-    data_config.total_keys = config_.initial_records;
-    data_config.hotspot_count = static_cast<size_t>(config_.initial_records * 0.1);  // 10% hot keys
-    data_config.medium_count = static_cast<size_t>(config_.initial_records * 0.2);  // 20% medium keys  
-    data_config.tail_count = config_.initial_records - data_config.hotspot_count - data_config.medium_count;  // 70% tail keys
+    data_config.total_keys = config_.total_keys;
+    data_config.hotspot_count = static_cast<size_t>(config_.total_keys * 0.1);  // 10% hot keys
+    data_config.medium_count = static_cast<size_t>(config_.total_keys * 0.2);  // 20% medium keys  
+    data_config.tail_count = config_.total_keys - data_config.hotspot_count - data_config.medium_count;  // 70% tail keys
     
     utils::log_info("About to create DataGenerator with {} keys", data_config.total_keys);
     
@@ -28,24 +26,9 @@ StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager
     const auto& all_keys = data_generator_->get_all_keys();
     utils::log_info("StrategyScenarioRunner initialized with config:");
     utils::log_info("  Total Keys: {}", all_keys.size());
-    utils::log_info("  Initial Records: {}", config_.initial_records);
-    utils::log_info("  Hotspot Updates: {}", config_.hotspot_updates);
+    utils::log_info("  Test Duration: {} minutes", config_.continuous_duration_minutes);
     utils::log_info("  Hot/Medium/Tail Keys: {} / {} / {}", 
                    data_config.hotspot_count, data_config.medium_count, data_config.tail_count);
-    
-    // 验证DualRocksDB配置是否被正确接收
-    if (config_.storage_strategy == "dual_rocksdb_adaptive") {
-        utils::log_info("=== DUALROCKSDB CONFIG VERIFICATION ===");
-        utils::log_info("  dual_rocksdb_range_size: {}", config_.dual_rocksdb_range_size);
-        utils::log_info("  dual_rocksdb_cache_size: {} MB", config_.dual_rocksdb_cache_size / (1024 * 1024));
-        utils::log_info("  dual_rocksdb_hot_ratio: {:.3f}", config_.dual_rocksdb_hot_ratio);
-        utils::log_info("  dual_rocksdb_medium_ratio: {:.3f}", config_.dual_rocksdb_medium_ratio);
-        utils::log_info("  enable_compression (global): {}", config_.enable_compression ? "true" : "false");
-        utils::log_info("  bloom_filters: always enabled");
-        utils::log_info("  dual_rocksdb_batch_size: {}", config_.dual_rocksdb_batch_size);
-        utils::log_info("  dual_rocksdb_max_batch_bytes: {} MB", config_.dual_rocksdb_max_batch_bytes / (1024 * 1024));
-        utils::log_info("=== END DUALROCKSDB CONFIG VERIFICATION ===");
-    }
     
     // Set merge callback for metrics collection (for strategies that support it)
     db_manager_->set_merge_callback([this](size_t merged_values, size_t merged_value_size) {
@@ -59,12 +42,12 @@ void StrategyScenarioRunner::run_initial_load_phase() {
     // DEBUG: 验证实际的数据大小
     const auto& all_keys = data_generator_->get_all_keys();
     utils::log_info("=== ACTUAL DATA VERIFICATION ===");
-    utils::log_info("Config says initial_records: {}", config_.initial_records);
+    utils::log_info("Config says total_keys: {}", config_.total_keys);
     utils::log_info("DataGenerator actually has: {} keys", all_keys.size());
     utils::log_info("Expected: 1:2:7 ratio with {} hot, {} medium, {} tail", 
-                   static_cast<size_t>(config_.initial_records * 0.1),
-                   static_cast<size_t>(config_.initial_records * 0.2),
-                   config_.initial_records - static_cast<size_t>(config_.initial_records * 0.1) - static_cast<size_t>(config_.initial_records * 0.2));
+                   static_cast<size_t>(config_.total_keys * 0.1),
+                   static_cast<size_t>(config_.total_keys * 0.2),
+                   config_.total_keys - static_cast<size_t>(config_.total_keys * 0.1) - static_cast<size_t>(config_.total_keys * 0.2));
     utils::log_info("=== END VERIFICATION ===");
     
     const size_t batch_size = 10000;
@@ -119,141 +102,7 @@ void StrategyScenarioRunner::run_initial_load_phase() {
                    initial_load_end_block_, total_keys);
 }
 
-void StrategyScenarioRunner::run_hotspot_update_phase() {
-    utils::log_info("Starting hotspot update phase...");
-    
-    const auto& all_keys = data_generator_->get_all_keys();
-    size_t batch_size = std::min(10000UL, config_.hotspot_updates);  // 确保不超过配置的更新数
-    const size_t query_interval = std::min(500000UL, config_.hotspot_updates);
-    size_t total_processed = 0;
-    BlockNum current_block = config_.initial_records / 10000;  // 使用配置中的初始记录数
-    
-    while (total_processed < config_.hotspot_updates) {  // 使用配置中的热点更新数
-        auto update_indices = data_generator_->generate_hotspot_update_indices(batch_size);
-        
-        std::vector<DataRecord> records;
-        auto random_values = data_generator_->generate_random_values(update_indices.size());
-        
-        records.reserve(update_indices.size());
-        
-        for (size_t i = 0; i < update_indices.size(); ++i) {
-            size_t idx = update_indices[i];
-            if (idx >= all_keys.size()) continue;
-            
-            DataRecord record{
-                current_block,       // block_num
-                all_keys[idx],       // addr_slot
-                random_values[i]     // value
-            };
-            records.push_back(record);
-        }
-        
-        metrics_collector_->start_write_timer();
-        bool success = db_manager_->write_batch(records);
-        metrics_collector_->stop_and_record_write(records.size(), 
-                                                 records.size() * (32 + all_keys[0].size()));
-        
-        if (!success) {
-            utils::log_error("Failed to write update batch at block {}", current_block);
-            break;
-        }
-        
-        total_processed += records.size();
-        current_block++;
-        
-        if (total_processed % query_interval == 0) {
-            run_historical_queries(100);
-        }
-        
-        if (total_processed % 100000 == 0) {
-            utils::log_info("Hotspot update progress: {}/{}", total_processed, config_.hotspot_updates);
-        }
-    }
-    
-    // Record the actual end block for realistic queries
-    hotspot_update_end_block_ = current_block;
-    utils::log_info("Hotspot update phase completed. Total processed: {}, final block: {}", total_processed, hotspot_update_end_block_);
-}
 
-void StrategyScenarioRunner::run_historical_queries(size_t query_count) {
-    utils::log_info("Running {} historical queries...", query_count);
-    
-    // Get all keys from data generator
-    const auto& all_keys = data_generator_->get_all_keys();
-    if (all_keys.empty()) {
-        utils::log_error("No keys available for historical queries");
-        return;
-    }
-    
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    
-    // Define key type ranges based on 1:2:7 ratio (hot:medium:tail)
-    const size_t hot_key_count = 10000000;      // 10M hot keys (0 to 9,999,999)
-    const size_t medium_key_count = 20000000;   // 20M medium keys (10M to 29,999,999)
-    const size_t tail_key_count = 70000000;     // 70M tail keys (30M to 99,999,999)
-    
-    // Weighted distribution: 1:2:7 (hot:medium:tail)
-    std::discrete_distribution<int> type_dist({1, 2, 7}); // hot, medium, tail
-    std::uniform_int_distribution<size_t> hot_dist(0, hot_key_count - 1);
-    std::uniform_int_distribution<size_t> medium_dist(hot_key_count, hot_key_count + medium_key_count - 1);
-    std::uniform_int_distribution<size_t> tail_dist(hot_key_count + medium_key_count, 
-                                                   hot_key_count + medium_key_count + tail_key_count - 1);
-    
-    utils::log_debug("Using {} initial keys for historical queries", all_keys.size());
-    
-    for (size_t i = 0; i < query_count; ++i) {
-        // Select key type based on 1:2:7 ratio
-        int key_type = type_dist(gen);
-        size_t key_idx;
-        
-        switch (key_type) {
-            case 0: // hot keys (0 to 9,999,999)
-                key_idx = hot_dist(gen);
-                break;
-            case 1: // medium keys (10M to 29,999,999)
-                key_idx = medium_dist(gen);
-                break;
-            case 2: // tail keys (30M to 99,999,999)
-                key_idx = tail_dist(gen);
-                break;
-            default:
-                key_idx = hot_dist(gen); // fallback
-        }
-        
-        // Get the actual key (ensure it's within bounds)
-        if (key_idx >= all_keys.size()) {
-            key_idx = key_idx % all_keys.size();
-        }
-        const std::string& key = all_keys[key_idx];
-        
-        // For historical queries, we query the latest value for the key
-        // This simulates "what is the current state of this key"
-        metrics_collector_->start_query_timer();
-        auto result = db_manager_->query_latest_value(key);
-        metrics_collector_->stop_and_record_query(result.has_value());
-        
-        // Determine key type for cache hit analysis based on selection
-        std::string key_type_str;
-        switch (key_type) {
-            case 0: // hot keys
-                key_type_str = "hot";
-                break;
-            case 1: // medium keys
-                key_type_str = "medium";
-                break;
-            case 2: // tail keys
-                key_type_str = "tail";
-                break;
-            default:
-                key_type_str = "hot"; // fallback
-        }
-        
-        // Record cache hit metrics (simulate cache behavior)
-        bool cache_hit = result.has_value() && (gen() % 100 < 80);  // 80% cache hit rate
-        metrics_collector_->record_cache_hit(key_type_str, cache_hit);
-    }
-}
 
 void StrategyScenarioRunner::collect_rocksdb_statistics() {
     // Collect real bloom filter statistics
@@ -304,8 +153,8 @@ void StrategyScenarioRunner::run_continuous_update_query_loop(size_t duration_mi
     perf_metrics_.start_time = std::chrono::steady_clock::now();
     auto end_time = perf_metrics_.start_time + std::chrono::minutes(duration_minutes);
     
-    size_t block_num = config_.initial_records / 10000; // 从初始加载结束后的block开始
-    size_t batch_size = std::min(10000UL, config_.hotspot_updates);
+    size_t block_num = config_.total_keys / 10000; // 从初始加载结束后的block开始
+    size_t batch_size = std::min(10000UL, config_.total_keys);
     size_t update_count = 0;
     
     std::random_device rd;
@@ -347,7 +196,7 @@ void StrategyScenarioRunner::run_single_block_update_query(size_t block_num) {
     }
     
     // 1. 准备更新数据
-    size_t batch_size = std::min(10000UL, config_.hotspot_updates);
+    size_t batch_size = std::min(10000UL, config_.total_keys);
     auto update_indices = data_generator_->generate_hotspot_update_indices(batch_size);
     auto random_values = data_generator_->generate_random_values(update_indices.size());
     

@@ -3,6 +3,7 @@
 #include "../utils/logger.hpp"
 #include "dual_rocksdb_cache_manager.hpp"
 #include <rocksdb/db.h>
+#include <rocksdb/statistics.h>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -152,10 +153,17 @@ private:
     BlockNum extract_block_from_key(const std::string& key) const;
     std::vector<uint32_t> deserialize_range_list(const std::string& data) const;
     std::string serialize_range_list(const std::vector<uint32_t>& ranges) const;
+    std::string format_block_number(BlockNum block_num) const;
+    
+    // 通用iterator搜索方法
+    std::optional<std::pair<BlockNum, Value>> seek_iterator_for_prefix(
+        rocksdb::Iterator* it, const std::string& prefix, BlockNum max_block, bool seek_forward) const;
+    
+    // 通用统计方法
+    uint64_t get_compaction_statistic(rocksdb::Tickers ticker_type) const;
     
     // 内存管理
     void check_memory_pressure();
-    void optimize_cache_usage();
     
     // 批量写入管理
     void flush_pending_batches();
@@ -178,10 +186,5 @@ private:
     
     // 工具方法
     rocksdb::Options get_rocksdb_options(bool is_range_index = false) const;
-    std::string get_range_index_db_path(const std::string& base_path) const;
-    std::string get_data_storage_db_path(const std::string& base_path) const;
     
-    // 动态缓存优化（可选功能）
-    void dynamic_cache_optimization();
-    void reclassify_cache_entries();
 };

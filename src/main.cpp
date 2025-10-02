@@ -11,7 +11,7 @@
 bool handle_existing_data(const std::string& db_path) {
     utils::log_error("Database data already exists at: {}", db_path);
     utils::log_error("Options:");
-    utils::log_error("  1. Delete existing data and start fresh benchmark");
+    utils::log_error("  1. Delete existing data and start fresh test");
     utils::log_error("  2. Exit program");
     utils::log_error("Enter your choice (1 or 2): ");
     
@@ -35,31 +35,8 @@ int main(int argc, char* argv[]) {
         // Initialize logger with strategy name and verbose setting
         utils::init_logger(config.storage_strategy, config.verbose);
         
-        utils::log_info("RocksDB Benchmark Tool Starting...");
+        utils::log_info("RocksDB Historical Version Query Test Tool Starting...");
         config.print_config();
-        
-        // 全面的配置验证
-        utils::log_info("=== COMPREHENSIVE CONFIGURATION VERIFICATION ===");
-        utils::log_info("Basic Options:");
-        utils::log_info("  storage_strategy: '{}'", config.storage_strategy);
-        utils::log_info("  db_path: '{}'", config.db_path);
-        utils::log_info("  initial_records: {}", config.initial_records);
-        utils::log_info("  hotspot_updates: {}", config.hotspot_updates);
-        utils::log_info("  enable_bloom_filter: {}", config.enable_bloom_filter ? "true" : "false");
-        utils::log_info("  clean_existing_data: {}", config.clean_existing_data ? "true" : "false");
-        utils::log_info("  verbose: {}", config.verbose ? "true" : "false");
-        utils::log_info("  version: {}", config.version ? "true" : "false");
-        
-        utils::log_info("DualRocksDB Options:");
-        utils::log_info("  dual_rocksdb_range_size: {}", config.dual_rocksdb_range_size);
-        utils::log_info("  dual_rocksdb_cache_size: {} MB", config.dual_rocksdb_cache_size / (1024 * 1024));
-        utils::log_info("  dual_rocksdb_hot_ratio: {:.3f} ({:.1f}%)", config.dual_rocksdb_hot_ratio, config.dual_rocksdb_hot_ratio * 100);
-        utils::log_info("  dual_rocksdb_medium_ratio: {:.3f} ({:.1f}%)", config.dual_rocksdb_medium_ratio, config.dual_rocksdb_medium_ratio * 100);
-        utils::log_info("  dual_rocksdb_compression: {}", config.enable_compression ? "true" : "false");
-        utils::log_info("  dual_rocksdb_bloom_filters: always enabled");
-        utils::log_info("  dual_rocksdb_batch_size: {}", config.dual_rocksdb_batch_size);
-        utils::log_info("  dual_rocksdb_max_batch_bytes: {} MB", config.dual_rocksdb_max_batch_bytes / (1024 * 1024));
-        utils::log_info("=== END CONFIGURATION VERIFICATION ===");
         
         // Create the storage strategy based on configuration
         auto strategy = StorageStrategyFactory::create_strategy(config.storage_strategy, config);
@@ -86,41 +63,24 @@ int main(int argc, char* argv[]) {
         utils::log_info("Database opened successfully at: {} with strategy: {}", 
                        config.db_path, config.storage_strategy);
         
+        // Create scenario runner with simplified config
         StrategyScenarioRunner runner(db_manager, metrics_collector, config);
         
-        utils::log_info("Starting benchmark...");
+        utils::log_info("Starting historical version query test...");
+        utils::log_info("Test will run for {} minutes with {} keys", 
+                       config.continuous_duration_minutes, config.total_keys);
         
-        if (config.continuous_mode) {
-            utils::log_info("Running in continuous update-query mode for {} minutes", 
-                           config.continuous_duration_minutes);
-            
-            // 运行初始加载
-            runner.run_initial_load_phase();
-            
-            // 运行连续更新查询循环
-            runner.run_continuous_update_query_loop(config.continuous_duration_minutes);
-            
-            utils::log_info("Continuous benchmark completed successfully!");
-        } else {
-            // 传统模式：初始加载 + 热点更新
-            runner.run_initial_load_phase();
-            
-            runner.run_hotspot_update_phase();
-            
-            // Collect real RocksDB statistics before reporting
-            runner.collect_rocksdb_statistics();
-            
-            metrics_collector->report_summary();
-            
-            utils::log_info("Standard benchmark completed successfully!");
-        }
+        // 运行连续更新查询循环（这是唯一的模式）
+        runner.run_continuous_update_query_loop(config.continuous_duration_minutes);
+        
+        utils::log_info("Historical version query test completed successfully!");
         
     } catch (const ConfigError& e) {
         utils::log_error("Configuration error: {}", e.what());
         BenchmarkConfig::print_help(argv[0]);
         return 1;
     } catch (const std::exception& e) {
-        utils::log_error("Benchmark failed with exception: {}", e.what());
+        utils::log_error("Test failed with exception: {}", e.what());
         return 1;
     }
     

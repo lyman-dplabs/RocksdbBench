@@ -111,61 +111,7 @@ bool DualRocksDBStrategy::write_initial_load_batch(rocksdb::DB* db, const std::v
 std::optional<Value> DualRocksDBStrategy::query_latest_value(rocksdb::DB* db, const std::string& addr_slot) {
     total_reads_++;
     
-    // 如果启用了动态缓存优化，尝试使用缓存
-    if (cache_manager_) {
-        CacheLevel level = cache_manager_->determine_cache_level(addr_slot);
-        
-        // L1缓存检查：热点数据
-        if (level == CacheLevel::HOT) {
-            auto cached = cache_manager_->get_hot_data(addr_slot);
-            if (cached) {
-                cache_hits_++;
-                return cached;
-            }
-        }
-        
-        // 获取地址的范围列表
-        std::vector<uint32_t> ranges;
-        if (level >= CacheLevel::MEDIUM) {
-            // 从缓存获取范围列表
-            auto cached_ranges = cache_manager_->get_range_list(addr_slot);
-            if (cached_ranges) {
-                ranges = *cached_ranges;
-            }
-        }
-        
-        if (ranges.empty()) {
-            // 从数据库获取范围列表
-            ranges = get_address_ranges(range_index_db_.get(), addr_slot);
-            if (level >= CacheLevel::MEDIUM && !ranges.empty()) {
-                cache_manager_->cache_range_list(addr_slot, ranges);
-            }
-        }
-        
-        if (ranges.empty()) {
-            return std::nullopt;
-        }
-        
-        // 找到最新范围并搜索最新块
-        uint32_t latest_range = *std::max_element(ranges.begin(), ranges.end());
-        auto result = find_latest_block_in_range(data_storage_db_.get(), latest_range, addr_slot);
-        
-        if (!result) {
-            return std::nullopt;
-        }
-        
-        // 根据缓存级别决定是否缓存结果
-        if (level == CacheLevel::HOT) {
-            cache_manager_->cache_hot_data(addr_slot, *result);
-        } else if (level == CacheLevel::PASSIVE) {
-            cache_manager_->cache_passive_data(addr_slot, *result);
-        }
-        
-        cache_hits_++;
-        return result;
-    }
-    
-    // 未启用动态缓存优化的基本实现
+    // 简化实现：直接查询最新值，主要用于接口兼容
     std::vector<uint32_t> ranges = get_address_ranges(range_index_db_.get(), addr_slot);
     if (ranges.empty()) {
         return std::nullopt;
@@ -260,38 +206,28 @@ double DualRocksDBStrategy::get_cache_hit_rate() const {
     return static_cast<double>(cache_hits_.load()) / total;
 }
 
-uint64_t DualRocksDBStrategy::get_compaction_bytes_written() const {
-    // 从data_storage_db_获取统计信息
+uint64_t DualRocksDBStrategy::get_compaction_statistic(rocksdb::Tickers ticker_type) const {
+    // 通用方法：从data_storage_db_获取指定的统计信息
     if (!data_storage_db_) return 0;
     
     auto options = data_storage_db_->GetOptions();
     auto statistics = options.statistics;
     if (!statistics) return 0;
     
-    return statistics->getTickerCount(rocksdb::COMPACT_WRITE_BYTES);
+    return statistics->getTickerCount(ticker_type);
+}
+
+uint64_t DualRocksDBStrategy::get_compaction_bytes_written() const {
+    return get_compaction_statistic(rocksdb::COMPACT_WRITE_BYTES);
 }
 
 uint64_t DualRocksDBStrategy::get_compaction_bytes_read() const {
-    // 从data_storage_db_获取统计信息
-    if (!data_storage_db_) return 0;
-    
-    auto options = data_storage_db_->GetOptions();
-    auto statistics = options.statistics;
-    if (!statistics) return 0;
-    
-    return statistics->getTickerCount(rocksdb::COMPACT_READ_BYTES);
+    return get_compaction_statistic(rocksdb::COMPACT_READ_BYTES);
 }
 
 uint64_t DualRocksDBStrategy::get_compaction_count() const {
-    // 从data_storage_db_获取统计信息
-    if (!data_storage_db_) return 0;
-    
-    auto options = data_storage_db_->GetOptions();
-    auto statistics = options.statistics;
-    if (!statistics) return 0;
-    
     // 使用compaction相关统计的近似值
-    return statistics->getTickerCount(rocksdb::COMPACT_READ_BYTES) / (1024 * 1024); // 粗略估算
+    return get_compaction_statistic(rocksdb::COMPACT_READ_BYTES) / (1024 * 1024);
 }
 
 double DualRocksDBStrategy::get_compaction_efficiency() const {
@@ -308,60 +244,61 @@ uint32_t DualRocksDBStrategy::calculate_range(BlockNum block_num) const {
 }
 
 std::string DualRocksDBStrategy::build_data_key(uint32_t range_num, const std::string& addr_slot, BlockNum block_num) const {
+    return "R" + std::to_string(range_num) + "|" + addr_slot + "|" + format_block_number(block_num);
+}
+
+std::string DualRocksDBStrategy::format_block_number(BlockNum block_num) const {
     // 使用固定10位零填充，平衡内存使用和排序需求
     // 覆盖范围：0-9,999,999,999 (100亿块号，足够区块链使用)
     std::string block_str = std::to_string(block_num);
     if (block_str.length() < 10) {
         block_str.insert(0, 10 - block_str.length(), '0');
     }
-    
-    return "R" + std::to_string(range_num) + "|" + addr_slot + "|" + block_str;
+    return block_str;
 }
 
-
-std::optional<Value> DualRocksDBStrategy::find_latest_block_in_range(rocksdb::DB* db, uint32_t range_num, const std::string& addr_slot, BlockNum max_block) const {
-    std::string prefix = "R" + std::to_string(range_num) + "|" + addr_slot + "|";
-    
-    rocksdb::ReadOptions options;
-    std::unique_ptr<rocksdb::Iterator> it(db->NewIterator(options));
-    
-    // 计算当前范围的最大块号，避免传递的max_block超出当前范围
-    BlockNum range_max_block = (range_num + 1) * config_.range_size - 1;
-    BlockNum effective_max_block = std::min(max_block, range_max_block);
-    
-    // 构造target key: R{range_num}|{addr_slot}|{effective_max_block} (使用10位零填充)
-    std::string max_block_str = std::to_string(effective_max_block);
-    if (max_block_str.length() < 10) {
-        max_block_str.insert(0, 10 - max_block_str.length(), '0');
-    }
-    std::string target_key = prefix + max_block_str;
-    
-    // 使用SeekForPrev直接定位到<=target_key的最大key
-    it->SeekForPrev(rocksdb::Slice(target_key));
+std::optional<std::pair<BlockNum, Value>> DualRocksDBStrategy::seek_iterator_for_prefix(
+    rocksdb::Iterator* it, const std::string& prefix, BlockNum target_block, bool seek_forward) const {
     
     while (it->Valid()) {
         rocksdb::Slice current_key = it->key();
         std::string_view key_view(current_key.data(), current_key.size());
         
-        // 检查key是否以正确的prefix开头（使用string_view避免复制）
+        // 检查key是否以正确的prefix开头
         if (key_view.substr(0, prefix.length()) == prefix) {
-            // 找到了匹配的key，解析block_number
             BlockNum found_block = extract_block_from_key(std::string(key_view));
-            if (found_block <= max_block) {
-                // 直接从iterator获取value，避免额外的数据库查询
+            
+            // 根据搜索方向检查块号条件
+            bool block_matches = seek_forward ? (found_block >= target_block) : (found_block <= target_block);
+            
+            if (block_matches) {
                 rocksdb::Slice value_slice = it->value();
-                return std::string(value_slice.data(), value_slice.size());
+                return std::make_pair(found_block, std::string(value_slice.data(), value_slice.size()));
             }
         }
         
-        // 如果key已经小于prefix，说明没有更匹配的key了
-        if (key_view < prefix) {
+        // 如果key已经超出prefix范围，说明没有找到
+        if ((seek_forward && key_view > prefix) || (!seek_forward && key_view < prefix)) {
             break;
         }
         
-        it->Prev();
+        // 根据方向移动iterator
+        if (seek_forward) {
+            it->Next();
+        } else {
+            it->Prev();
+        }
     }
     
+    return std::nullopt;
+}
+
+
+std::optional<Value> DualRocksDBStrategy::find_latest_block_in_range(rocksdb::DB* db, uint32_t range_num, const std::string& addr_slot, BlockNum max_block) const {
+    auto result = find_latest_block_in_range_with_block(db, range_num, addr_slot, max_block);
+    if (result.has_value()) {
+        return result->second;
+    }
     return std::nullopt;
 }
 
@@ -378,40 +315,13 @@ std::optional<std::pair<BlockNum, Value>> DualRocksDBStrategy::find_latest_block
     BlockNum range_max_block = (range_num + 1) * config_.range_size - 1;
     BlockNum effective_max_block = std::min(max_block, range_max_block);
     
-    // 构造target key: R{range_num}|{addr_slot}|{effective_max_block} (使用10位零填充)
-    std::string max_block_str = std::to_string(effective_max_block);
-    if (max_block_str.length() < 10) {
-        max_block_str.insert(0, 10 - max_block_str.length(), '0');
-    }
-    std::string target_key = prefix + max_block_str;
+    // 构造target key: R{range_num}|{addr_slot}|{effective_max_block}
+    std::string target_key = prefix + format_block_number(effective_max_block);
     
     // 使用SeekForPrev直接定位到<=target_key的最大key
     it->SeekForPrev(rocksdb::Slice(target_key));
     
-    while (it->Valid()) {
-        rocksdb::Slice current_key = it->key();
-        std::string_view key_view(current_key.data(), current_key.size());
-        
-        // 检查key是否以正确的prefix开头（使用string_view避免复制）
-        if (key_view.substr(0, prefix.length()) == prefix) {
-            // 找到了匹配的key，解析block_number
-            BlockNum found_block = extract_block_from_key(std::string(key_view));
-            if (found_block <= max_block) {
-                // 直接从iterator获取value，避免额外的数据库查询
-                rocksdb::Slice value_slice = it->value();
-                return std::make_pair(found_block, std::string(value_slice.data(), value_slice.size()));
-            }
-        }
-        
-        // 如果key已经小于prefix，说明没有更匹配的key了
-        if (key_view < prefix) {
-            break;
-        }
-        
-        it->Prev();
-    }
-    
-    return std::nullopt;
+    return seek_iterator_for_prefix(it.get(), prefix, max_block, false);
 }
 
 
@@ -482,54 +392,19 @@ std::string DualRocksDBStrategy::serialize_range_list(const std::vector<uint32_t
 }
 
 void DualRocksDBStrategy::check_memory_pressure() {
-    // 仅在启用动态缓存优化时检查内存压力
-    if (!cache_manager_ || !config_.enable_dynamic_cache_optimization) {
-        return;
-    }
-    
-    static size_t last_check = 0;
-    size_t current_usage = cache_manager_->get_memory_usage();
-    
-    if (current_usage > config_.max_cache_memory * 0.9) {
-        // 内存压力超过90%，触发优化
-        optimize_cache_usage();
-    }
-    
-    // 定期清理过期缓存
-    cache_manager_->clear_expired();
-}
-
-void DualRocksDBStrategy::optimize_cache_usage() {
+    // 简化的内存压力检查
     if (!cache_manager_) {
         return;
     }
     
-    auto current_usage = cache_manager_->get_memory_usage();
-    
-    if (current_usage > config_.max_cache_memory) {
-        // 内存超限，强制清理
+    size_t current_usage = cache_manager_->get_memory_usage();
+    if (current_usage > config_.max_cache_memory * 0.9) {
+        // 内存压力超过90%，清理缓存
         cache_manager_->evict_least_used();
     }
     
-    // 动态缓存优化（可选功能）
-    if (config_.enable_dynamic_cache_optimization) {
-        dynamic_cache_optimization();
-    }
-}
-
-void DualRocksDBStrategy::dynamic_cache_optimization() {
-    // 基于访问模式重新分级缓存条目
-    reclassify_cache_entries();
-}
-
-void DualRocksDBStrategy::reclassify_cache_entries() {
-    // 根据当前的访问频率重新评估缓存级别
-    // 这是一个简化的实现，可以根据需要进一步优化
-    
-    // 定期清理统计信息中的过时条目通过cache_manager_->clear_expired()处理
-    if (cache_manager_) {
-        cache_manager_->clear_expired();
-    }
+    // 定期清理过期缓存
+    cache_manager_->clear_expired();
 }
 
 
@@ -603,22 +478,15 @@ bool DualRocksDBStrategy::execute_batch_write(rocksdb::WriteBatch& range_batch, 
 }
 
 void DualRocksDBStrategy::process_record_for_batch(const DataRecord& record, rocksdb::WriteBatch& range_batch, rocksdb::WriteBatch& data_batch, bool is_initial_load) {
-    // 计算目标范围
     uint32_t range_num = calculate_range(record.block_num);
     
     if (is_initial_load) {
-        // Initial Load优化：直接构建range list，无需查询数据库
-        std::string serialized_range = serialize_range_list({range_num});
-        range_batch.Put(record.addr_slot, serialized_range);
-    } else {
-        // 常规写入：需要查询并更新range index
-        // 注意：直接写入无法使用WriteBatch，需要单独处理
-        update_range_index(range_index_db_.get(), record.addr_slot, range_num);
+        // Initial Load优化：直接设置range list
+        range_batch.Put(record.addr_slot, serialize_range_list({range_num}));
     }
     
     // 存储数据（带范围前缀）
-    std::string data_key = build_data_key(range_num, record.addr_slot, record.block_num);
-    data_batch.Put(data_key, record.value);
+    data_batch.Put(build_data_key(range_num, record.addr_slot, record.block_num), record.value);
 }
 
 
@@ -655,54 +523,11 @@ void DualRocksDBStrategy::flush_pending_batches() {
         return;
     }
     
-    // 保存批次统计信息用于日志
-    uint32_t blocks_to_flush = current_batch_blocks_;
-    size_t size_to_flush = current_batch_size_;
+    utils::log_info("Flushing batch: {} blocks, {} MB", current_batch_blocks_, 
+                   current_batch_size_ / (1024 * 1024));
     
-    utils::log_info("开始flush批次: {} blocks, {} MB", blocks_to_flush, size_to_flush / (1024 * 1024));
-    utils::log_info("范围索引batch操作数: {}, 数据batch操作数: {}", 
-                   pending_range_batch_.Count(), pending_data_batch_.Count());
-    
-    rocksdb::WriteOptions write_options;
-    write_options.sync = false;
-    auto start_time = std::chrono::high_resolution_clock::now();
-    
-    // 写入范围索引数据库
-    if (pending_range_batch_.Count() > 0) {
-        utils::log_info("正在写入范围索引数据库...");
-        utils::log_info("范围索引batch大小估算: {} bytes", pending_range_batch_.GetDataSize());
-        
-        auto range_start = std::chrono::high_resolution_clock::now();
-        auto range_status = range_index_db_->Write(write_options, &pending_range_batch_);
-        auto range_end = std::chrono::high_resolution_clock::now();
-        auto range_duration = std::chrono::duration_cast<std::chrono::milliseconds>(range_end - range_start);
-        
-        if (!range_status.ok()) {
-            log_error("Failed to write pending range batch: {}", range_status.ToString());
-        } else {
-            utils::log_info("范围索引写入完成，耗时: {} ms", range_duration.count());
-        }
-    }
-    
-    // 写入数据存储数据库
-    if (pending_data_batch_.Count() > 0) {
-        utils::log_info("正在写入数据存储数据库...");
-        utils::log_info("数据batch操作数: {}", pending_data_batch_.Count());
-        
-        auto data_start = std::chrono::high_resolution_clock::now();
-        
-        // 添加心跳日志，显示正在写入
-        utils::log_info("执行RocksDB写入操作，batch包含 {} 个操作", pending_data_batch_.Count());
-        
-        auto data_status = data_storage_db_->Write(write_options, &pending_data_batch_);
-        auto data_end = std::chrono::high_resolution_clock::now();
-        auto data_duration = std::chrono::duration_cast<std::chrono::milliseconds>(data_end - data_start);
-        
-        if (!data_status.ok()) {
-            log_error("Failed to write pending data batch: {}", data_status.ToString());
-        } else {
-            utils::log_info("数据存储写入完成，耗时: {} ms", data_duration.count());
-        }
+    if (!execute_batch_write(pending_range_batch_, pending_data_batch_, "pending_batch")) {
+        log_error("Failed to flush pending batches");
     }
     
     // 重置批次状态
@@ -803,41 +628,18 @@ std::optional<Value> DualRocksDBStrategy::find_minimum_block_in_range(rocksdb::D
                                                                       BlockNum min_block) const {
     std::string prefix = "R" + std::to_string(range_num) + "|" + addr_slot + "|";
     
-    // 构造最小可能的key
-    std::string min_block_str = std::to_string(min_block);
-    if (min_block_str.length() < 10) {
-        min_block_str.insert(0, 10 - min_block_str.length(), '0');
-    }
-    std::string target_key = prefix + min_block_str;
-    
     rocksdb::ReadOptions options;
     std::unique_ptr<rocksdb::Iterator> it(db->NewIterator(options));
+    
+    // 构造最小可能的key
+    std::string target_key = prefix + format_block_number(min_block);
     
     // Seek到target_key，找到>=target_key的第一个key
     it->Seek(target_key);
     
-    while (it->Valid()) {
-        rocksdb::Slice current_key = it->key();
-        std::string_view key_view(current_key.data(), current_key.size());
-        
-        // 检查key是否以正确的prefix开头
-        if (key_view.substr(0, prefix.length()) == prefix) {
-            // 找到了>=min_block的最小key
-            rocksdb::Slice value_slice = it->value();
-            std::string value = value_slice.ToString();
-            
-            // 提取block_num
-            BlockNum found_block = extract_block_from_key(std::string(key_view));
-            return std::to_string(found_block) + ":" + value;
-        }
-        
-        // 如果key已经大于prefix（即到了下一个address），说明没有找到
-        if (key_view < prefix) {
-            break;
-        }
-        
-        it->Next();
+    auto result = seek_iterator_for_prefix(it.get(), prefix, min_block, true);
+    if (result.has_value()) {
+        return std::to_string(result->first) + ":" + result->second;
     }
-    
     return std::nullopt;
 }

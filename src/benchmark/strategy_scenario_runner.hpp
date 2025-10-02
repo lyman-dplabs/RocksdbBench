@@ -15,7 +15,6 @@ public:
                          const BenchmarkConfig& config);
 
     void run_initial_load_phase();
-    void run_hotspot_update_phase();
     
     // New update-query loop that runs for specified duration
     void run_continuous_update_query_loop(size_t duration_minutes = 360);
@@ -26,8 +25,6 @@ public:
     // Get current strategy information
     std::string get_current_strategy() const;
     
-    // Test helper method
-    void run_historical_queries_test(size_t query_count) { run_historical_queries(query_count); }
 
 private:
     std::shared_ptr<StrategyDBManager> db_manager_;
@@ -50,8 +47,6 @@ private:
         void print_statistics() const;
     };
     PerformanceMetrics perf_metrics_;
-    
-    void run_historical_queries(size_t query_count);
     
     // New query interface for random historical version queries
     struct QueryResult {

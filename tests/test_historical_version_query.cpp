@@ -76,8 +76,7 @@ bool test_direct_version_basic() {
         // 配置
         BenchmarkConfig benchmark_config;
         benchmark_config.storage_strategy = "direct_version";
-        benchmark_config.initial_records = 1000; // 小规模测试
-        benchmark_config.hotspot_updates = 100;
+        benchmark_config.total_keys = 1000; // 小规模测试
         
         auto runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config);
         
@@ -194,8 +193,7 @@ bool test_continuous_update_query_loop() {
         
         BenchmarkConfig benchmark_config;
         benchmark_config.storage_strategy = "direct_version";
-        benchmark_config.initial_records = 500; // 小规模
-        benchmark_config.hotspot_updates = 50;
+        benchmark_config.total_keys = 500; // 小规模
         
         auto runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config);
         
@@ -228,8 +226,7 @@ bool test_performance_log_format() {
         
         BenchmarkConfig benchmark_config;
         benchmark_config.storage_strategy = "direct_version";
-        benchmark_config.initial_records = 100;
-        benchmark_config.hotspot_updates = 10;
+        benchmark_config.total_keys = 100;
         
         auto runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config);
         

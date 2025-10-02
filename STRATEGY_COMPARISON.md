@@ -1,125 +1,109 @@
-# Strategy Comparison Summary
+# Strategy Comparison: Direct vs Dual RocksDB
 
 ## Overview
 
-This document provides a quick comparison of the implemented storage strategies and their characteristics.
+This document compares the two storage strategies implemented for historical version query testing in RocksDB benchmarking.
 
-## Strategy Details
+## DirectVersion Strategy
 
-### PageIndexStrategy (Original)
+### Architecture
+- **Single Database**: Uses one RocksDB instance with prefixed keys
+- **Key Format**: `VERSION|{address_slot}:{block_number}` → `value`
+- **Storage Layout**: All data stored in a single column family with version prefixes
+- **Query Method**: Direct seek with prefix matching
 
-**Data Structure:**
-```
-ChangeSet Table: {block_num:8x}{address_slot} → value
-Index Table:     {page_num:8x}{address_slot} → [block_num_list]
-```
+### Strengths
+- **Simplicity**: Single database, straightforward implementation
+- **Low Overhead**: No additional database management complexity
+- **Memory Efficient**: No duplicate data or complex caching structures
+- **Fast Setup**: Single database initialization
 
-**Query Pattern:**
-1. Find latest block: Scan pages in Index table
-2. Get value: Direct lookup in ChangeSet table
+### Weaknesses
+- **Limited Optimization**: No range-based optimizations
+- **Competition**: Updates and queries compete for the same resources
+- **Scalability**: Performance may degrade with very large datasets
 
-**Characteristics:**
-- ✅ Mature and well-tested
-- ✅ Efficient merge operations
-- ✅ Page-based indexing reduces memory
-- ❌ Two-query overhead for value lookups
-- ❌ Index scanning can be slow for sparse keys
+## Dual RocksDB Strategy
 
-**Best For:**
-- Workloads with good key locality
-- Scenarios requiring proven reliability
-- Memory-constrained environments
+### Architecture
+- **Dual Database**: Two separate RocksDB instances
+  - **Range Index DB**: Maps addresses to block ranges
+  - **Data Storage DB**: Stores actual data with range prefixes
+- **Key Format**: `R{range_num}|{address_slot}|{block_number}` → `value`
+- **Range Management**: Blocks grouped into configurable ranges (default: 5000 blocks)
+- **Adaptive Caching**: Multi-level cache system (hot/medium/passive)
 
-### DirectVersionStrategy (New)
+### Strengths
+- **Range Optimization**: Efficient range-based queries and batch operations
+- **Load Separation**: Range index and data storage compete for different resources
+- **Adaptive Caching**: Intelligent cache management based on access patterns
+- **Scalability**: Better performance for large datasets
 
-**Data Structure:**
-```
-Version Index: VERSION|{address_slot}:{version:16x} → block_number  
-Data Store:    DATA|{block_num:8x}|{address_slot} → value
-```
-
-**Query Pattern:**
-1. Build max version key: `VERSION|{key}:FFFFFFFF`
-2. Seek to find latest version
-3. Get block number, then read value
-
-**Characteristics:**
-- ✅ Single seek operation for latest values
-- ✅ Key prefix organization enables efficient range queries
-- ✅ Separation of versioning from data storage
-- ❌ Two-layer storage (version index + data)
-- ❌ Key encoding overhead
-
-**Best For:**
-- Latest-value queries (common in blockchain state)
-- Workloads with frequent version lookups
-- Scenarios needing efficient range queries
+### Weaknesses
+- **Complexity**: More complex implementation with dual database management
+- **Memory Overhead**: Additional caching structures and duplicate indexing
+- **Setup Cost**: Two database instances to initialize and manage
 
 ## Performance Characteristics
 
+### Historical Version Query
+- **Direct**: O(log N) seek per query, single database operation
+- **Dual**: O(log R) range lookup + O(log N) data query, where R is number of ranges
+
 ### Write Performance
-- **PageIndex**: Moderate (merge operations + index updates)
-- **DirectVersion**: Faster (simple key-value writes)
-
-### Read Performance (Latest Value)
-- **PageIndex**: Slower (index scan + data lookup)
-- **DirectVersion**: Faster (single seek operation)
-
-### Read Performance (Historical Query)
-- **PageIndex**: Moderate (targeted page scan)
-- **DirectVersion**: Moderate (version range seek)
-
-### Storage Overhead
-- **PageIndex**: Higher (index maintenance)
-- **DirectVersion**: Lower (simpler structure)
+- **Direct**: Single write operation per record
+- **Dual**: Range index update + data storage write (two operations)
 
 ### Memory Usage
-- **PageIndex**: Moderate (page caching)
-- **DirectVersion**: Lower (direct key access)
+- **Direct**: Minimal overhead, primarily RocksDB memory usage
+- **Dual**: Additional cache memory for range management (configurable)
 
-## Usage Examples
+## Configuration Parameters
 
-```bash
-# Test PageIndexStrategy
-./scripts/run.sh --strategy page_index --clean
-
-# Test DirectVersionStrategy  
-./scripts/run.sh --strategy direct_version --clean
-
-# Compare both strategies
-./scripts/test_both_strategies.sh
-
-# Custom dataset sizes
-./scripts/run.sh --strategy direct_version --initial-records 50000000 --hotspot-updates 5000000
+### DirectVersion Strategy
+```cpp
+batch_size_blocks = 5          // Blocks per write batch
+max_batch_size_bytes = 4GB     // Maximum batch size
 ```
 
-## When to Use Each Strategy
+### Dual RocksDB Strategy
+```cpp
+range_size = 5000              // Blocks per range
+cache_size = 128MB             // Total cache memory
+hot_cache_ratio = 1%           // Hot data cache percentage
+medium_cache_ratio = 5%        // Medium data cache percentage
+batch_size_blocks = 5          // Blocks per write batch
+max_batch_size_bytes = 4GB     // Maximum batch size
+```
 
-### Choose PageIndexStrategy when:
-- You need proven, battle-tested implementation
-- Memory usage is a critical concern
-- Your workload has good key locality
-- You're doing mostly historical range queries
+## Use Cases
 
-### Choose DirectVersionStrategy when:
-- Latest-value queries are common
-- You need efficient version management
-- Storage efficiency is important
-- You're testing new blockchain storage patterns
+### Choose DirectVersion When:
+- Simplicity is preferred over optimization
+- Memory constraints are tight
+- Dataset size is moderate
+- Testing focuses on basic historical version queries
 
-## Future Strategy Ideas
+### Choose Dual RocksDB When:
+- Maximum performance is required
+- Dataset size is large
+- Complex query patterns are expected
+- Range-based optimizations are beneficial
 
-Based on the implementation patterns, consider these strategies:
+## Benchmarking Results
 
-1. **SimpleKeyBlockStrategy**: Direct key-value without complex indexing
-2. **TimeSeriesStrategy**: Time-bucketed storage for range queries  
-3. **CompressedStrategy**: Value compression for storage efficiency
-4. **HybridStrategy**: Combine best aspects of multiple approaches
+The tool supports running historical version query tests with both strategies to compare performance under specific workloads.
 
-## Testing Recommendations
+### Test Configuration
+- Default test: 1000 keys, 360 minutes (6 hours)
+- Update-query loop: One block update followed by multiple historical queries
+- Performance metrics: Write latency, query latency, cache hit rates
 
-1. **Always test with clean data**: Use `--clean` flag
-2. **Compare multiple runs**: Strategies may have warm-up effects
-3. **Monitor system resources**: Watch CPU, memory, and disk I/O
-4. **Test realistic workloads**: Use production-like data patterns
-5. **Document findings**: Record performance characteristics for your use case
+## Summary
+
+Both strategies implement the required historical version query semantics correctly:
+- **Query Logic**: ≤target_version find latest, else find ≥minimum
+- **Data Integrity**: Consistent results across both implementations
+- **Performance Trade-offs**: Simplicity vs. optimization
+
+The choice between strategies depends on specific testing requirements and performance characteristics needed for the benchmark scenario.
