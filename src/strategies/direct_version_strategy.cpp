@@ -17,17 +17,15 @@ DirectVersionStrategy::DirectVersionStrategy(const Config& config) : config_(con
                     config_.batch_size_blocks, config_.max_batch_size_bytes);
 }
 
-bool DirectVersionStrategy::create_column_families(rocksdb::DB* db) {
-    // 简化实现：不使用列族，而是使用键前缀来区分不同类型的数据
+bool DirectVersionStrategy::initialize(rocksdb::DB* db) {
+    // 保存数据库引用用于flush_all_batches
+    db_ref_ = db;
+    
     utils::log_info("DirectVersionStrategy initialized - using key prefixes instead of column families");
-    utils::log_info("Batch configuration: {} blocks per batch, {} bytes max", 
-                    config_.batch_size_blocks, config_.max_batch_size_bytes);
+    utils::log_info("Batch configuration: {} blocks per batch, {} MB max", 
+                    config_.batch_size_blocks, config_.max_batch_size_bytes / (1024 * 1024));
     utils::log_info("Using storage strategy: {}", get_strategy_name());
     return true;
-}
-
-bool DirectVersionStrategy::initialize(rocksdb::DB* db) {
-    return create_column_families(db);
 }
 
 bool DirectVersionStrategy::write_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) {
@@ -144,7 +142,7 @@ std::string DirectVersionStrategy::build_version_key(const std::string& addr_slo
     // 构建版本索引key: VERSION|address_slot:version
     // 使用固定长度格式确保正确的字典序
     std::ostringstream oss;
-    oss << "VERSION|" << addr_slot << ":" << std::setw(16) << std::setfill('0') << std::hex << version;
+    oss << "VERSION|" << addr_slot << ":" << std::setw(16) << std::setfill('0') << std::dec << version;
     return oss.str();
 }
 
@@ -280,7 +278,55 @@ void DirectVersionStrategy::add_block_to_pending_batch(const std::vector<DataRec
 }
 
 void DirectVersionStrategy::flush_all_batches() {
-    // This method is called by StrategyDBManager, but we need db parameter
-    // For now, just log that this method was called
-    utils::log_info("DirectVersionStrategy::flush_all_batches called - batch will be flushed on next write or cleanup");
+    if (!db_ref_) {
+        utils::log_error("DirectVersionStrategy::flush_all_batches called but db_ref_ is null!");
+        return;
+    }
+    
+    std::lock_guard<std::mutex> lock(batch_mutex_);
+    
+    if (batch_dirty_ && current_batch_blocks_ > 0) {
+        // 保存批次统计信息用于日志
+        uint32_t blocks_to_flush = current_batch_blocks_;
+        size_t size_to_flush = current_batch_size_;
+        
+        utils::log_info("Flushing DirectVersion final batch: {} blocks, {} MB", 
+                        blocks_to_flush, size_to_flush / (1024 * 1024));
+        
+        rocksdb::WriteOptions write_options;
+        write_options.sync = false;
+        
+        // 写入初始加载的pending batch
+        if (pending_batch_initial_.Count() > 0) {
+            utils::log_info("Flushing initial load batch with {} operations", pending_batch_initial_.Count());
+            auto status = db_ref_->Write(write_options, &pending_batch_initial_);
+            if (!status.ok()) {
+                utils::log_error("Failed to flush initial load batch: {}", status.ToString());
+            } else {
+                utils::log_info("Initial load batch flushed successfully");
+            }
+        }
+        
+        // 写入常规pending batch
+        if (pending_batch_.Count() > 0) {
+            utils::log_info("Flushing regular batch with {} operations", pending_batch_.Count());
+            auto status = db_ref_->Write(write_options, &pending_batch_);
+            if (!status.ok()) {
+                utils::log_error("Failed to flush regular batch: {}", status.ToString());
+            } else {
+                utils::log_info("Regular batch flushed successfully");
+            }
+        }
+        
+        // 重置批次状态
+        pending_batch_.Clear();
+        pending_batch_initial_.Clear();
+        current_batch_size_ = 0;
+        current_batch_blocks_ = 0;
+        batch_dirty_ = false;
+        
+        utils::log_info("All DirectVersion batches flushed successfully");
+    } else {
+        utils::log_info("No pending DirectVersion batches to flush");
+    }
 }

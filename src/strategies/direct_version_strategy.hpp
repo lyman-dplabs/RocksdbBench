@@ -42,6 +42,9 @@ public:
 private:
     Config config_;
     
+    // 保存数据库引用 - 用于flush_all_batches
+    rocksdb::DB* db_ref_ = nullptr;
+    
     // 批量写入缓存
     mutable std::mutex batch_mutex_;
     mutable rocksdb::WriteBatch pending_batch_;
@@ -54,8 +57,6 @@ private:
     
     // 初始加载批量写入缓存
     mutable rocksdb::WriteBatch pending_batch_initial_;
-    
-    bool create_column_families(rocksdb::DB* db);
     
     std::string build_version_key(const std::string& addr_slot, BlockNum version) const;
     
