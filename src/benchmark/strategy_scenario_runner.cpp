@@ -75,10 +75,6 @@ void StrategyScenarioRunner::run_initial_load_phase() {
     size_t total_keys = all_keys.size();
     BlockNum current_block = 0;
     
-    // Clear and prepare to track written keys
-    initial_load_keys_.clear();
-    initial_load_keys_.reserve(total_keys);
-    
     for (size_t i = 0; i < total_keys; i += batch_size) {
         size_t end_idx = std::min(i + batch_size, total_keys);
         size_t current_batch_size = end_idx - i;
@@ -96,9 +92,6 @@ void StrategyScenarioRunner::run_initial_load_phase() {
                 random_values[j]         // value
             };
             records.push_back(record);
-            
-            // Track this key for historical queries
-            initial_load_keys_.push_back(all_keys[key_idx]);
         }
         
         metrics_collector_->start_write_timer();
@@ -122,7 +115,7 @@ void StrategyScenarioRunner::run_initial_load_phase() {
     // Record the actual end block for realistic queries
     initial_load_end_block_ = current_block;
     utils::log_info("Initial load phase completed. Total blocks written: {}, keys tracked: {}", 
-                   initial_load_end_block_, initial_load_keys_.size());
+                   initial_load_end_block_, total_keys);
 }
 
 void StrategyScenarioRunner::run_hotspot_update_phase() {
@@ -187,8 +180,10 @@ void StrategyScenarioRunner::run_hotspot_update_phase() {
 void StrategyScenarioRunner::run_historical_queries(size_t query_count) {
     utils::log_info("Running {} historical queries...", query_count);
     
-    if (initial_load_keys_.empty()) {
-        utils::log_error("No initial load keys available for historical queries");
+    // Get all keys from data generator
+    const auto& all_keys = data_generator_->get_all_keys();
+    if (all_keys.empty()) {
+        utils::log_error("No keys available for historical queries");
         return;
     }
     
@@ -207,7 +202,7 @@ void StrategyScenarioRunner::run_historical_queries(size_t query_count) {
     std::uniform_int_distribution<size_t> tail_dist(hot_key_count + medium_key_count, 
                                                    hot_key_count + medium_key_count + tail_key_count - 1);
     
-    utils::log_debug("Using {} initial keys for historical queries", initial_load_keys_.size());
+    utils::log_debug("Using {} initial keys for historical queries", all_keys.size());
     
     for (size_t i = 0; i < query_count; ++i) {
         // Select key type based on 1:2:7 ratio
@@ -229,10 +224,10 @@ void StrategyScenarioRunner::run_historical_queries(size_t query_count) {
         }
         
         // Get the actual key (ensure it's within bounds)
-        if (key_idx >= initial_load_keys_.size()) {
-            key_idx = key_idx % initial_load_keys_.size();
+        if (key_idx >= all_keys.size()) {
+            key_idx = key_idx % all_keys.size();
         }
-        const std::string& key = initial_load_keys_[key_idx];
+        const std::string& key = all_keys[key_idx];
         
         // For historical queries, we query the latest value for the key
         // This simulates "what is the current state of this key"
