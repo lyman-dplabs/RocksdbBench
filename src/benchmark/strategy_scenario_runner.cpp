@@ -68,9 +68,6 @@ void StrategyScenarioRunner::run_initial_load_phase() {
                    config_.initial_records - static_cast<size_t>(config_.initial_records * 0.1) - static_cast<size_t>(config_.initial_records * 0.2));
     utils::log_info("=== END VERIFICATION ===");
     
-    // 启用批量写入模式以优化数据准备阶段的性能
-    db_manager_->set_batch_mode(true);
-    
     const size_t batch_size = 10000;
     size_t total_keys = all_keys.size();
     BlockNum current_block = 0;
@@ -111,6 +108,8 @@ void StrategyScenarioRunner::run_initial_load_phase() {
                            i, total_keys, (i * 100.0 / total_keys));
         }
     }
+
+    db_manager_->flush_all_batches();
     
     // Record the actual end block for realistic queries
     initial_load_end_block_ = current_block;
@@ -120,9 +119,6 @@ void StrategyScenarioRunner::run_initial_load_phase() {
 
 void StrategyScenarioRunner::run_hotspot_update_phase() {
     utils::log_info("Starting hotspot update phase...");
-    
-    // 切换到直接写入模式以确保实时一致性
-    db_manager_->set_batch_mode(false);
     
     const auto& all_keys = data_generator_->get_all_keys();
     size_t batch_size = std::min(10000UL, config_.hotspot_updates);  // 确保不超过配置的更新数

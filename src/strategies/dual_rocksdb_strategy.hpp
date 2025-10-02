@@ -95,8 +95,7 @@ public:
     const Config& get_config() const { return config_; }
     
     // 批量写入接口
-    void flush_all_batches();  // 强制刷写所有待写入批次
-    void set_batch_mode(bool enable);  // 动态切换批量写入模式
+    void flush_all_batches() override;  // 强制刷写所有待写入批次
     
     // 统计接口
     uint64_t get_total_reads() const { return total_reads_.load(); }

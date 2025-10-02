@@ -135,24 +135,8 @@ bool StrategyDBManager::write_initial_load_batch(const std::vector<DataRecord>& 
     return strategy_->write_initial_load_batch(db_.get(), records);
 }
 
-void StrategyDBManager::set_batch_mode(bool enable) {
-    if (!is_open_) {
-        utils::log_error("Database is not open");
-        return;
-    }
-
-    try {
-        // Check if strategy supports batch mode (DualRocksDBStrategy specific interface)
-        auto* dual_strategy = dynamic_cast<DualRocksDBStrategy*>(strategy_.get());
-        if (dual_strategy) {
-            dual_strategy->set_batch_mode(enable);
-            utils::log_info("Set batch mode to {} for DualRocksDBStrategy", enable);
-        } else {
-            utils::log_warn("Strategy {} does not support batch mode", strategy_->get_strategy_name());
-        }
-    } catch (const std::exception& e) {
-        utils::log_error("Exception during set_batch_mode: {}", e.what());
-    }
+void StrategyDBManager::flush_all_batches() {
+    return strategy_->flush_all_batches();
 }
 
 // Legacy interface for compatibility

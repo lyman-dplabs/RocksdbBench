@@ -32,6 +32,10 @@ public:
                                         const std::vector<DataRecord>& records) {
         return write_batch(db, records);
     }
+
+    virtual void flush_all_batches() {
+        return;
+    }
     
     // 查询最新值
     virtual std::optional<Value> query_latest_value(rocksdb::DB* db, 

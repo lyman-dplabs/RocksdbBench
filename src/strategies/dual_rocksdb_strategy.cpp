@@ -547,17 +547,6 @@ void DualRocksDBStrategy::flush_all_batches() {
     }
 }
 
-void DualRocksDBStrategy::set_batch_mode(bool enable) {
-    std::lock_guard<std::mutex> lock(batch_mutex_);
-    
-    // 如果从批量模式切换到直接模式，先刷写所有待写入批次
-    if (!enable && batch_dirty_) {
-        flush_pending_batches();
-    }
-    
-    log_info("Batch mode {}", enable ? "enabled" : "disabled");
-}
-
 void DualRocksDBStrategy::add_to_batch(const DataRecord& record) {
     // 计算目标范围
     uint32_t range_num = calculate_range(record.block_num);
