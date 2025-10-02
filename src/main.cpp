@@ -32,8 +32,8 @@ int main(int argc, char* argv[]) {
         // Parse configuration from command line arguments
         auto config = BenchmarkConfig::from_args(argc, argv);
         
-        // Initialize logger with strategy name
-        utils::init_logger(config.storage_strategy);
+        // Initialize logger with strategy name and verbose setting
+        utils::init_logger(config.storage_strategy, config.verbose);
         
         utils::log_info("RocksDB Benchmark Tool Starting...");
         config.print_config();

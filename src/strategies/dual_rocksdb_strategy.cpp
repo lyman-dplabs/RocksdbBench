@@ -4,6 +4,7 @@
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/statistics.h>
 #include <algorithm>
+#include <chrono>
 
 using namespace utils;
 
@@ -541,24 +542,49 @@ void DualRocksDBStrategy::flush_pending_batches() {
     uint32_t blocks_to_flush = current_batch_blocks_;
     size_t size_to_flush = current_batch_size_;
     
-    utils::log_info("Flushing batch: {} blocks, {} bytes", blocks_to_flush, size_to_flush);
+    utils::log_info("开始flush批次: {} blocks, {} MB", blocks_to_flush, size_to_flush / (1024 * 1024));
+    utils::log_info("范围索引batch操作数: {}, 数据batch操作数: {}", 
+                   pending_range_batch_.Count(), pending_data_batch_.Count());
     
     rocksdb::WriteOptions write_options;
     write_options.sync = false;
+    auto start_time = std::chrono::high_resolution_clock::now();
     
     // 写入范围索引数据库
     if (pending_range_batch_.Count() > 0) {
+        utils::log_info("正在写入范围索引数据库...");
+        utils::log_info("范围索引batch大小估算: {} bytes", pending_range_batch_.GetDataSize());
+        
+        auto range_start = std::chrono::high_resolution_clock::now();
         auto range_status = range_index_db_->Write(write_options, &pending_range_batch_);
+        auto range_end = std::chrono::high_resolution_clock::now();
+        auto range_duration = std::chrono::duration_cast<std::chrono::milliseconds>(range_end - range_start);
+        
         if (!range_status.ok()) {
             log_error("Failed to write pending range batch: {}", range_status.ToString());
+        } else {
+            utils::log_info("范围索引写入完成，耗时: {} ms", range_duration.count());
         }
     }
     
     // 写入数据存储数据库
     if (pending_data_batch_.Count() > 0) {
+        utils::log_info("正在写入数据存储数据库...");
+        utils::log_info("数据batch操作数: {}", pending_data_batch_.Count());
+        
+        auto data_start = std::chrono::high_resolution_clock::now();
+        
+        // 添加心跳日志，显示正在写入
+        utils::log_info("执行RocksDB写入操作，batch包含 {} 个操作", pending_data_batch_.Count());
+        
         auto data_status = data_storage_db_->Write(write_options, &pending_data_batch_);
+        auto data_end = std::chrono::high_resolution_clock::now();
+        auto data_duration = std::chrono::duration_cast<std::chrono::milliseconds>(data_end - data_start);
+        
         if (!data_status.ok()) {
             log_error("Failed to write pending data batch: {}", data_status.ToString());
+        } else {
+            utils::log_info("数据存储写入完成，耗时: {} ms", data_duration.count());
         }
     }
     
