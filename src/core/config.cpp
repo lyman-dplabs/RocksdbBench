@@ -21,7 +21,7 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
 
   app.add_option("-k,--total-keys", config.total_keys,
                  "Total number of keys for testing")
-      ->default_val(1000)
+      ->default_val(100000000)
       ->check(CLI::PositiveNumber);
 
   app.add_option("-t,--duration", config.continuous_duration_minutes,
@@ -45,7 +45,7 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
   // 策略特定选项
   app.add_option("--range-size", config.range_size,
                  "Range size for dual_rocksdb_adaptive strategy")
-      ->default_val(5000)
+      ->default_val(10000)
       ->check(CLI::PositiveNumber);
 
   app.add_option("--cache-size", config.cache_size,
@@ -56,7 +56,7 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
   // Batch配置选项
   app.add_option("--batch-size-blocks", config.batch_size_blocks,
                  "Number of blocks per write batch (default: 5)")
-      ->default_val(5)
+      ->default_val(5000)
       ->check(CLI::PositiveNumber);
 
   app.add_option("--max-batch-size-bytes", config.max_batch_size_bytes,
