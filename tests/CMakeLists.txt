@@ -119,3 +119,16 @@ target_link_libraries(test_refactor_integration
         fmt::fmt
 )
 
+add_executable(test_direct_version_batch test_direct_version_batch.cpp)
+
+target_link_libraries(test_direct_version_batch
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
+)
+
+

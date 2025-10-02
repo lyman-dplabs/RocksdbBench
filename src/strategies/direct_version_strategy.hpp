@@ -28,6 +28,7 @@ public:
     bool initialize(rocksdb::DB* db) override;
     
     bool write_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) override;
+    bool write_initial_load_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) override;
     
     std::optional<Value> query_latest_value(rocksdb::DB* db, const std::string& addr_slot) override;
     
@@ -51,9 +52,12 @@ private:
     // 统计信息
     std::atomic<uint64_t> total_writes_{0};
     
+    // 初始加载批量写入缓存
+    mutable rocksdb::WriteBatch pending_batch_initial_;
+    
     bool create_column_families(rocksdb::DB* db);
     
-    std::string build_version_key(const std::string& addr_slot, BlockNum version);
+    std::string build_version_key(const std::string& addr_slot, BlockNum version) const;
     
     std::optional<Value> find_value_by_version(rocksdb::DB* db, 
                                                 const std::string& version_key,
@@ -63,4 +67,13 @@ private:
     void add_to_batch(const DataRecord& record);
     bool write_batch_with_processor(rocksdb::DB* db, const std::vector<DataRecord>& records, 
                                    std::function<void(const DataRecord&)> processor);
+    
+    // 批量写入辅助方法
+    bool should_flush_batch(size_t record_size) const;
+    void flush_pending_batches(rocksdb::DB* db);
+    size_t calculate_block_size(const std::vector<DataRecord>& records) const;
+    void add_block_to_pending_batch(const std::vector<DataRecord>& records, size_t block_size);
+    
+    // 实现接口方法
+    void flush_all_batches() override;
 };
