@@ -22,6 +22,7 @@ struct BenchmarkConfig {
     bool clean_existing_data = false;              // 清理现有数据
     bool verbose = false;                          // 详细输出
     bool version = false;                          // 显示版本信息
+    bool enable_dynamic_cache_optimization = false; // 启用动态缓存优化
     
     // 策略特定配置（简化）
     size_t range_size = 5000;                      // DualRocksDB范围大小

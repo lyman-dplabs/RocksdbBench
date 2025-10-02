@@ -49,7 +49,7 @@ std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_dual_rocksdb_st
     config.medium_cache_ratio = 0.05;  // 5% medium cache
     config.enable_compression = false;  // 默认关闭压缩
     config.enable_bloom_filters = true;  // 强制启用布隆过滤器
-    config.enable_dynamic_cache_optimization = false;  // 默认关闭动态缓存优化
+    config.enable_dynamic_cache_optimization = benchmark_config.enable_dynamic_cache_optimization;  // 默认关闭动态缓存优化
     
     // 从BenchmarkConfig中读取batch配置
     config.batch_size_blocks = benchmark_config.batch_size_blocks;

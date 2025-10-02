@@ -39,6 +39,9 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
 
   app.add_flag("-v,--verbose", config.verbose, "Enable verbose output");
 
+  app.add_flag("--enable-dynamic-cache-optimization", config.enable_dynamic_cache_optimization,
+               "Enable dynamic cache optimization (for DualRocksDB strategy)");
+
   // 策略特定选项
   app.add_option("--range-size", config.range_size,
                  "Range size for dual_rocksdb_adaptive strategy")
