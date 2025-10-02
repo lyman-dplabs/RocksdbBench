@@ -29,9 +29,9 @@ std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_strategy(
 std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_direct_version_strategy(const BenchmarkConfig& config) {
     DirectVersionStrategy::Config strategy_config;
     
-    // 使用简化的默认配置
-    strategy_config.batch_size_blocks = 5;  // 默认5个block per batch
-    strategy_config.max_batch_size_bytes = 4UL * 1024 * 1024 * 1024;  // 4GB max batch
+    // 从BenchmarkConfig中读取batch配置
+    strategy_config.batch_size_blocks = config.batch_size_blocks;
+    strategy_config.max_batch_size_bytes = config.max_batch_size_bytes;
     
     utils::log_info("Creating DirectVersionStrategy with config: batch_size_blocks={}, max_batch_size_bytes={}", 
                     strategy_config.batch_size_blocks, strategy_config.max_batch_size_bytes);
@@ -50,8 +50,10 @@ std::unique_ptr<IStorageStrategy> StorageStrategyFactory::create_dual_rocksdb_st
     config.enable_compression = false;  // 默认关闭压缩
     config.enable_bloom_filters = true;  // 强制启用布隆过滤器
     config.enable_dynamic_cache_optimization = false;  // 默认关闭动态缓存优化
-    config.batch_size_blocks = 5;  // 默认5个block per batch
-    config.max_batch_size_bytes = 4UL * 1024 * 1024 * 1024;  // 4GB max batch
+    
+    // 从BenchmarkConfig中读取batch配置
+    config.batch_size_blocks = benchmark_config.batch_size_blocks;
+    config.max_batch_size_bytes = benchmark_config.max_batch_size_bytes;
     
     utils::log_info("Creating DualRocksDB strategy with config:");
     utils::log_info("  Range Size: {}", config.range_size);

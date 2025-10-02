@@ -50,6 +50,17 @@ BenchmarkConfig BenchmarkConfig::from_args(int argc, char *argv[]) {
       ->default_val(128 * 1024 * 1024)
       ->check(CLI::PositiveNumber);
 
+  // Batch配置选项
+  app.add_option("--batch-size-blocks", config.batch_size_blocks,
+                 "Number of blocks per write batch (default: 5)")
+      ->default_val(5)
+      ->check(CLI::PositiveNumber);
+
+  app.add_option("--max-batch-size-bytes", config.max_batch_size_bytes,
+                 "Maximum batch size in bytes (default: 4GB)")
+      ->default_val(4UL * 1024 * 1024 * 1024)
+      ->check(CLI::PositiveNumber);
+
   // 位置参数
   app.add_option("db_path_pos", config.db_path,
                  "Database path (positional argument)")
@@ -105,6 +116,8 @@ void BenchmarkConfig::print_config() const {
   utils::log_info("Bloom Filter: {}", enable_bloom_filter ? "Enabled" : "Disabled");
   utils::log_info("Clean Existing Data: {}", clean_existing_data ? "Yes" : "No");
   utils::log_info("Verbose Output: {}", verbose ? "Yes" : "No");
+  utils::log_info("Batch Size Blocks: {}", batch_size_blocks);
+  utils::log_info("Max Batch Size: {} MB", max_batch_size_bytes / (1024 * 1024));
 
   if (storage_strategy == "dual_rocksdb_adaptive") {
     utils::log_info("Range Size: {}", range_size);
@@ -163,6 +176,10 @@ void BenchmarkConfig::print_help(const std::string &program_name) {
                "strategy (default: 5000)\n";
   std::cout << "  --cache-size N               Cache size in bytes "
                "(default: 128MB)\n";
+  std::cout << "  --batch-size-blocks N       Number of blocks per write batch "
+               "(default: 5)\n";
+  std::cout << "  --max-batch-size-bytes N    Maximum batch size in bytes "
+               "(default: 4GB)\n";
   std::cout << "\nExamples:\n";
   std::cout << "  " << program_name
             << " --strategy direct_version --total-keys 1000 --duration 60\n";
