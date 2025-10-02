@@ -453,6 +453,26 @@ rocksdb::Options DualRocksDBStrategy::get_rocksdb_options(bool is_range_index) c
     auto statistics = rocksdb::CreateDBStatistics();
     options.statistics = statistics;
     
+    // === 内存优化配置（针对400G内存） ===
+    // MemTable配置 - 利用大内存
+    options.write_buffer_size = 2ULL * 1024 * 1024 * 1024;      // 2GB per memtable
+    options.max_write_buffer_number = 12;                        // 12个memtable = 24GB
+    options.min_write_buffer_number_to_merge = 4;                // 4个合并后flush
+    
+    // WAL优化
+    options.max_total_wal_size = 8ULL * 1024 * 1024 * 1024;      // 8GB WAL空间
+    options.wal_bytes_per_sync = 64 * 1024 * 1024;              // 64MB WAL同步块
+    
+    // 并行处理最大化
+    options.max_background_compactions = 16;                     // 16个compaction线程
+    options.max_background_flushes = 8;                          // 8个flush线程
+    options.max_subcompactions = 8;                              // 8路并行compaction
+    
+    // 并行写入优化
+    options.allow_concurrent_memtable_write = true;
+    options.enable_write_thread_adaptive_yield = true;
+    options.write_thread_max_yield_usec = 100;
+    
     // 为范围索引数据库优化
     if (is_range_index) {
         options.OptimizeForPointLookup(128 * 1024 * 1024); // 减少到128MB cache，避免OOM

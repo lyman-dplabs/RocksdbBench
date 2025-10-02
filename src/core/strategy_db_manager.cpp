@@ -170,6 +170,26 @@ rocksdb::Options StrategyDBManager::get_db_options() {
     options.use_fsync = false;
     options.stats_dump_period_sec = 60;
     
+    // === 内存优化配置（针对400G内存） ===
+    // MemTable配置 - 利用大内存
+    options.write_buffer_size = 2ULL * 1024 * 1024 * 1024;      // 2GB per memtable
+    options.max_write_buffer_number = 12;                        // 12个memtable = 24GB
+    options.min_write_buffer_number_to_merge = 4;                // 4个合并后flush
+    
+    // WAL优化
+    options.max_total_wal_size = 8ULL * 1024 * 1024 * 1024;      // 8GB WAL空间
+    options.wal_bytes_per_sync = 64 * 1024 * 1024;              // 64MB WAL同步块
+    
+    // 并行处理最大化
+    options.max_background_compactions = 16;                     // 16个compaction线程
+    options.max_background_flushes = 8;                          // 8个flush线程
+    options.max_subcompactions = 8;                              // 8路并行compaction
+    
+    // 并行写入优化
+    options.allow_concurrent_memtable_write = true;
+    options.enable_write_thread_adaptive_yield = true;
+    options.write_thread_max_yield_usec = 100;
+    
     // Enable Bloom Filter with basic options
     options.optimize_filters_for_hits = true;
     options.level_compaction_dynamic_level_bytes = true;
@@ -178,6 +198,7 @@ rocksdb::Options StrategyDBManager::get_db_options() {
     options.statistics = statistics_;
     
     utils::log_info("Database options configured with Bloom filter and statistics");
+    utils::log_info("Large memory optimizations enabled: 2GB memtable, 8GB WAL, 16/8 background threads");
     
     return options;
 }
