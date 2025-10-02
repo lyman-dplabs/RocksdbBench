@@ -154,7 +154,7 @@ private:
     
     // 批量写入通用模板
     bool write_batch_with_processor(rocksdb::DB* db, const std::vector<DataRecord>& records, 
-                                   std::function<void(const DataRecord&)> processor);
+                                   std::function<void(const DataRecord&)> processor, bool should_flush_batch = true);
     
     // Initial Load辅助方法
     void add_to_initial_load_batch(const DataRecord& record);

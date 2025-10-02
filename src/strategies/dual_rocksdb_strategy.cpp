@@ -53,7 +53,7 @@ bool DualRocksDBStrategy::initialize(rocksdb::DB* main_db) {
 }
 
 bool DualRocksDBStrategy::write_batch_with_processor(rocksdb::DB* db, const std::vector<DataRecord>& records, 
-                                                     std::function<void(const DataRecord&)> processor) {
+                                                     std::function<void(const DataRecord&)> processor, bool should_flush_batch) {
     if (!range_index_db_ || !data_storage_db_) {
         log_error("DualRocksDB databases not initialized");
         return false;
@@ -71,8 +71,9 @@ bool DualRocksDBStrategy::write_batch_with_processor(rocksdb::DB* db, const std:
         }
     }
     
-    // 检查是否需要刷写批次
-    if (batch_dirty_) {
+    // initial load的时候会自动攒批刷写
+    // update hotspot的时候直接下刷
+    if (should_flush_batch && batch_dirty_) {
         flush_pending_batches();
     }
     
@@ -87,13 +88,13 @@ bool DualRocksDBStrategy::write_batch_with_processor(rocksdb::DB* db, const std:
 bool DualRocksDBStrategy::write_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) {
     return write_batch_with_processor(db, records, [this](const DataRecord& record) {
         add_to_batch(record);
-    });
+    }, true);
 }
 
 bool DualRocksDBStrategy::write_initial_load_batch(rocksdb::DB* db, const std::vector<DataRecord>& records) {
     return write_batch_with_processor(db, records, [this](const DataRecord& record) {
         add_to_initial_load_batch(record);
-    });
+    }, false); // 启用自动刷写模式，让batch自己控制
 }
 
 std::optional<Value> DualRocksDBStrategy::query_latest_value(rocksdb::DB* db, const std::string& addr_slot) {
@@ -619,7 +620,7 @@ void DualRocksDBStrategy::add_to_initial_load_batch(const DataRecord& record) {
     current_batch_blocks_++;
     batch_dirty_ = true;
     
-    // 检查是否需要刷写
+    // 检查是否需要刷写 - Initial Load也需要batch控制，避免内存无限增长
     if (should_flush_batch(record_size)) {
         flush_pending_batches();
     }
@@ -633,6 +634,8 @@ void DualRocksDBStrategy::flush_pending_batches() {
     // 保存批次统计信息用于日志
     uint32_t blocks_to_flush = current_batch_blocks_;
     size_t size_to_flush = current_batch_size_;
+    
+    utils::log_info("Flushing batch: {} blocks, {} bytes", blocks_to_flush, size_to_flush);
     
     rocksdb::WriteOptions write_options;
     write_options.sync = false;

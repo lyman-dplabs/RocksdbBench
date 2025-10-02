@@ -52,11 +52,6 @@ StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager
 void StrategyScenarioRunner::run_initial_load_phase() {
     utils::log_info("Starting initial load phase...");
     
-    // 检查是否使用优化的Initial Load接口
-    if (db_manager_->get_strategy_name() == "dual_rocksdb_adaptive") {
-        utils::log_info("Using optimized initial load interface for DualRocksDB strategy");
-    }
-    
     // DEBUG: 验证实际的数据大小
     const auto& all_keys = data_generator_->get_all_keys();
     utils::log_info("=== ACTUAL DATA VERIFICATION ===");
@@ -72,6 +67,7 @@ void StrategyScenarioRunner::run_initial_load_phase() {
     size_t total_keys = all_keys.size();
     BlockNum current_block = 0;
     
+    // 这里整个似乎都可以并行化
     for (size_t i = 0; i < total_keys; i += batch_size) {
         size_t end_idx = std::min(i + batch_size, total_keys);
         size_t current_batch_size = end_idx - i;
@@ -81,6 +77,7 @@ void StrategyScenarioRunner::run_initial_load_phase() {
         
         records.reserve(current_batch_size);
         
+        // TODO: parallem?
         for (size_t j = 0; j < current_batch_size; ++j) {
             size_t key_idx = i + j;
             DataRecord record{
