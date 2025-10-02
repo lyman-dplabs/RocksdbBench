@@ -70,7 +70,13 @@ int main(int argc, char* argv[]) {
         utils::log_info("Test will run for {} minutes with {} keys", 
                        config.continuous_duration_minutes, config.total_keys);
         
-        // 运行连续更新查询循环（这是唯一的模式）
+        // 第一步：运行初始加载阶段
+        utils::log_info("Phase 1: Running initial load phase...");
+        runner.run_initial_load_phase();
+        utils::log_info("Initial load phase completed!");
+        
+        // 第二步：运行连续更新查询循环
+        utils::log_info("Phase 2: Running continuous update-query loop...");
         runner.run_continuous_update_query_loop(config.continuous_duration_minutes);
         
         utils::log_info("Historical version query test completed successfully!");
