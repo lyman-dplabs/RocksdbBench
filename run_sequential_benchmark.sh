@@ -32,8 +32,6 @@ nohup ./build/rocksdb_bench_app \
     --strategy direct_version \
     --batch-size-blocks 75000 \
     --max-batch-size-bytes 322122547200 \
-    --duration 2 \
-    --total-keys 1000 \
     --clean-data \
     > logs/benchmark_direct_${TIMESTAMP1}.log 2>&1
 
