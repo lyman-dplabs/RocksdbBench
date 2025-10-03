@@ -180,7 +180,7 @@ rocksdb::Options StrategyDBManager::get_db_options() {
     options.create_if_missing = true;
     options.create_missing_column_families = true;
     options.compression = rocksdb::kNoCompression;
-    options.max_open_files = -1;
+    options.max_open_files = 10000;
     options.use_fsync = false;
     options.stats_dump_period_sec = 60;
     

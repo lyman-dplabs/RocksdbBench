@@ -5,6 +5,10 @@
 
 set -e  # 遇到错误立即退出
 
+# 提高文件描述符限制，避免"Too many open files"错误
+ulimit -n 65536
+echo "File descriptor limit set to: $(ulimit -n)"
+
 # 创建日志目录
 mkdir -p logs
 
@@ -60,8 +64,6 @@ nohup ./build/rocksdb_bench_app \
     --batch-size-blocks 75000 \
     --max-batch-size-bytes 322122547200 \
     --enable-dynamic-cache-optimization \
-    --duration 2 \
-    --total-keys 1000 \
     --clean-data \
     > logs/benchmark_dual_${TIMESTAMP2}.log 2>&1
 
