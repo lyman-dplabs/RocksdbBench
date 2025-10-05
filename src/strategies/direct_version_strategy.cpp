@@ -283,11 +283,67 @@ bool DirectVersionStrategy::cleanup(rocksdb::DB* db) {
         flush_pending_batches(db);
     }
 
-    // 打印compaction信息
+    utils::log_info("=== DirectVersionStrategy Database Property Statistics ===");
+
+    // 获取compaction统计
+    std::string compaction_stats;
+    if (db->GetProperty("rocksdb.compaction-stats", &compaction_stats)) {
+        utils::log_info("Compaction Stats:\n{}", compaction_stats);
+    }
+
+    // 获取column family统计
+    std::string cf_stats;
+    if (db->GetProperty("rocksdb.cfstats", &cf_stats)) {
+        utils::log_info("Column Family Stats:\n{}", cf_stats);
+    }
+
+    // 获取数据库统计
+    std::string db_stats;
+    if (db->GetProperty("rocksdb.stats", &db_stats)) {
+        utils::log_info("Database Stats:\n{}", db_stats);
+    }
+
+    // 获取SST文件统计
+    std::string sstables;
+    if (db->GetProperty("rocksdb.sstables", &sstables)) {
+        utils::log_info("SSTable Stats:\n{}", sstables);
+    }
+
+    // 获取内存表统计
+    std::string memtable_stats;
+    if (db->GetProperty("rocksdb.cur-size-all-mem-tables", &memtable_stats)) {
+        utils::log_info("Current MemTable Size: {}", memtable_stats);
+    }
+
+    // 获取level统计
+    std::string level_stats;
+    if (db->GetProperty("rocksdb.levelstats", &level_stats)) {
+        utils::log_info("Level Stats:\n{}", level_stats);
+    }
+
+    // 获取数据库大小
+    std::string db_size;
+    if (db->GetProperty("rocksdb.estimate-num-keys", &db_size)) {
+        utils::log_info("Estimated Number of Keys: {}", db_size);
+    }
+
+    // 获取实时统计
+    std::map<std::string, std::string> stats_map;
+    if (db->GetMapProperty(rocksdb::DB::Properties::kDBStats, &stats_map)) {
+        utils::log_info("=== Real-time Database Statistics ===");
+        for (const auto& [key, value] : stats_map) {
+            utils::log_info("{}: {}", key, value);
+        }
+    }
+
+    // 打印详细的compaction统计
     auto options = db->GetOptions();
     auto statistics = options.statistics.get();
-    utils::print_compaction_statistics("DirectVersionStrategy", statistics);
+    if (statistics) {
+        utils::print_compaction_statistics("DirectVersionStrategy", statistics);
+    }
 
+    utils::log_info("================================================");
     utils::log_info("DirectVersionStrategy cleanup completed");
     return true;
 }

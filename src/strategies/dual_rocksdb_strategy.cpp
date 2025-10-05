@@ -180,18 +180,114 @@ bool DualRocksDBStrategy::cleanup(rocksdb::DB* db) {
         cache_manager_->clear_all();
     }
 
-    // 打印compaction信息 - Range Index DB
+    // 打印详细的RocksDB Map Properties - Range Index DB
     if (range_index_db_) {
         auto range_options = range_index_db_->GetOptions();
         auto range_statistics = range_options.statistics.get();
         utils::print_compaction_statistics("DualRocksDBStrategy - Range Index DB", range_statistics);
+
+        // 使用GetMapProperty获取更多详细信息
+        utils::log_info("=== DualRocksDBStrategy - Range Index DB Map Properties ===");
+
+        // 获取compaction统计
+        std::string compaction_stats;
+        if (range_index_db_->GetProperty("rocksdb.compaction-stats", &compaction_stats)) {
+            utils::log_info("Compaction Stats:\n{}", compaction_stats);
+        }
+
+        // 获取CF统计
+        std::string cf_stats;
+        if (range_index_db_->GetProperty("rocksdb.cfstats", &cf_stats)) {
+            utils::log_info("Column Family Stats:\n{}", cf_stats);
+        }
+
+        // 获取DB统计
+        std::string db_stats;
+        if (range_index_db_->GetProperty("rocksdb.stats", &db_stats)) {
+            utils::log_info("DB Stats:\n{}", db_stats);
+        }
+
+        // 获取SST文件信息
+        std::string sstables;
+        if (range_index_db_->GetProperty("rocksdb.sstables", &sstables)) {
+            utils::log_info("SSTables:\n{}", sstables);
+        }
+
+        // 获取内存使用
+        std::string cur_size;
+        if (range_index_db_->GetProperty("rocksdb.cur-size-all-mem-tables", &cur_size)) {
+            utils::log_info("Current MemTable Size: {}", cur_size);
+        }
+
+        // 获取level信息
+        std::string level_stats;
+        if (range_index_db_->GetProperty("rocksdb.levelstats", &level_stats)) {
+            utils::log_info("Level Stats:\n{}", level_stats);
+        }
+
+        // 获取实时统计 - 使用GetMapProperty
+        std::map<std::string, std::string> range_stats_map;
+        if (range_index_db_->GetMapProperty(rocksdb::DB::Properties::kDBStats, &range_stats_map)) {
+            utils::log_info("=== Real-time Range Index DB Statistics ===");
+            for (const auto& [key, value] : range_stats_map) {
+                utils::log_info("{}: {}", key, value);
+            }
+        }
     }
 
-    // 打印compaction信息 - Data Storage DB
+    // 打印详细的RocksDB Map Properties - Data Storage DB
     if (data_storage_db_) {
         auto data_options = data_storage_db_->GetOptions();
         auto data_statistics = data_options.statistics.get();
         utils::print_compaction_statistics("DualRocksDBStrategy - Data Storage DB", data_statistics);
+
+        // 使用GetMapProperty获取更多详细信息
+        utils::log_info("=== DualRocksDBStrategy - Data Storage DB Map Properties ===");
+
+        // 获取compaction统计
+        std::string compaction_stats;
+        if (data_storage_db_->GetProperty("rocksdb.compaction-stats", &compaction_stats)) {
+            utils::log_info("Compaction Stats:\n{}", compaction_stats);
+        }
+
+        // 获取CF统计
+        std::string cf_stats;
+        if (data_storage_db_->GetProperty("rocksdb.cfstats", &cf_stats)) {
+            utils::log_info("Column Family Stats:\n{}", cf_stats);
+        }
+
+        // 获取DB统计
+        std::string db_stats;
+        if (data_storage_db_->GetProperty("rocksdb.stats", &db_stats)) {
+            utils::log_info("DB Stats:\n{}", db_stats);
+        }
+
+        // 获取SST文件信息
+        std::string sstables;
+        if (data_storage_db_->GetProperty("rocksdb.sstables", &sstables)) {
+            utils::log_info("SSTables:\n{}", sstables);
+        }
+
+        // 获取内存使用
+        std::string cur_size;
+        if (data_storage_db_->GetProperty("rocksdb.cur-size-all-mem-tables", &cur_size)) {
+            utils::log_info("Current MemTable Size: {}", cur_size);
+        }
+
+        // 获取level信息
+        std::string level_stats;
+        if (data_storage_db_->GetProperty("rocksdb.levelstats", &level_stats)) {
+            utils::log_info("Level Stats:\n{}", level_stats);
+        }
+
+        // 获取实时统计 - 使用GetMapProperty
+        std::map<std::string, std::string> data_stats_map;
+        if (data_storage_db_->GetMapProperty(rocksdb::DB::Properties::kDBStats, &data_stats_map)) {
+            utils::log_info("=== Real-time Data Storage DB Statistics ===");
+            for (const auto& [key, value] : data_stats_map) {
+                utils::log_info("{}: {}", key, value);
+            }
+        }
     }
 
     if (range_index_db_) {
