@@ -15,6 +15,7 @@ DualRocksDBStrategy::DualRocksDBStrategy(const Config& config)
     
     // 仅在启用动态缓存优化时初始化缓存管理器
     if (config_.enable_dynamic_cache_optimization) {
+        utils::log_info("Initializing AdaptiveCacheManager with max_cache_memory: {} MB", config.max_cache_memory / (1024 * 1024));
         cache_manager_ = std::make_unique<AdaptiveCacheManager>(config.max_cache_memory);
         cache_manager_->set_config(config.hot_cache_ratio, config.medium_cache_ratio);
     }
