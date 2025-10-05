@@ -282,7 +282,12 @@ bool DirectVersionStrategy::cleanup(rocksdb::DB* db) {
     if (batch_dirty_ && current_batch_blocks_ > 0) {
         flush_pending_batches(db);
     }
-    
+
+    // 打印compaction信息
+    auto options = db->GetOptions();
+    auto statistics = options.statistics.get();
+    utils::print_compaction_statistics("DirectVersionStrategy", statistics);
+
     utils::log_info("DirectVersionStrategy cleanup completed");
     return true;
 }

@@ -175,21 +175,35 @@ std::optional<Value> DualRocksDBStrategy::query_historical_version(rocksdb::DB* 
 bool DualRocksDBStrategy::cleanup(rocksdb::DB* db) {
     // 刷写所有待写入的批次
     flush_all_batches();
-    
+
     if (cache_manager_) {
         cache_manager_->clear_all();
     }
-    
+
+    // 打印compaction信息 - Range Index DB
+    if (range_index_db_) {
+        auto range_options = range_index_db_->GetOptions();
+        auto range_statistics = range_options.statistics.get();
+        utils::print_compaction_statistics("DualRocksDBStrategy - Range Index DB", range_statistics);
+    }
+
+    // 打印compaction信息 - Data Storage DB
+    if (data_storage_db_) {
+        auto data_options = data_storage_db_->GetOptions();
+        auto data_statistics = data_options.statistics.get();
+        utils::print_compaction_statistics("DualRocksDBStrategy - Data Storage DB", data_statistics);
+    }
+
     if (range_index_db_) {
         range_index_db_->Close();
         range_index_db_.reset();
     }
-    
+
     if (data_storage_db_) {
         data_storage_db_->Close();
         data_storage_db_.reset();
     }
-    
+
     utils::log_info("DualRocksDBStrategy cleanup completed");
     return true;
 }

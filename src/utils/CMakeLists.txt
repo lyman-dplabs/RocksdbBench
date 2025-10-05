@@ -1,5 +1,6 @@
 add_library(utils_lib
     logger.hpp
+    logger.cpp
     data_generator.hpp
     data_generator.cpp
 )

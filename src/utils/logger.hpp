@@ -10,6 +10,11 @@
 #include <sstream>
 #include <mutex>
 
+// 前向声明，避免在头文件中包含RocksDB
+namespace rocksdb {
+    class Statistics;
+}
+
 namespace utils {
 
 // 全局日志器初始化 - 支持动态命名
@@ -109,5 +114,8 @@ void log_error_flush(fmt::format_string<Args...> fmt_str, Args&&... args) {
     spdlog::error(fmt_str, std::forward<Args>(args)...);
     flush_logger();
 }
+
+// 打印compaction统计信息的通用函数
+void print_compaction_statistics(const std::string& db_name, rocksdb::Statistics* statistics);
 
 }
