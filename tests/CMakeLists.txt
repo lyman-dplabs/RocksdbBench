@@ -10,6 +10,9 @@ add_executable(test_dual_strategy_basic test_dual_strategy_basic.cpp)
 add_executable(test_concurrent_read_write test_concurrent_read_write.cpp)
 add_executable(test_lock_optimization test_lock_optimization.cpp)
 
+# SingleFlight Cache tests with GTest
+add_executable(test_singleflight_cache test_singleflight_cache.cpp)
+
 # Historical version query test
 target_link_libraries(test_historical_version_query
     PRIVATE
@@ -60,4 +63,13 @@ target_link_libraries(test_lock_optimization
         strategies_lib
         RocksDB::rocksdb
         fmt::fmt
+)
+
+# SingleFlight Cache test
+target_link_libraries(test_singleflight_cache
+    PRIVATE
+        GTest::gtest
+        GTest::gtest_main
+        GTest::gmock
+        strategies_lib
 )

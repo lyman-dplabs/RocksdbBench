@@ -3,7 +3,8 @@ add_library(strategies_lib
     page_index_strategy.cpp
     direct_version_strategy.cpp
     dual_rocksdb_strategy.cpp
-    dual_rocksdb_cache_manager.cpp
+    simple_lru_cache.cpp
+    dual_rocksdb_cache_interface.cpp
     strategy_factory.cpp
 )
 

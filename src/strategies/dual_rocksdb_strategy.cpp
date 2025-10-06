@@ -12,13 +12,10 @@ using namespace utils;
 
 DualRocksDBStrategy::DualRocksDBStrategy(const Config& config)
     : config_(config) {
-    
-    // 仅在启用动态缓存优化时初始化缓存管理器
-    if (config_.enable_dynamic_cache_optimization) {
-        utils::log_info("Initializing AdaptiveCacheManager with max_cache_memory: {} MB", config.max_cache_memory / (1024 * 1024));
-        cache_manager_ = std::make_unique<AdaptiveCacheManager>(config.max_cache_memory);
-        cache_manager_->set_config(config.hot_cache_ratio, config.medium_cache_ratio);
-    }
+
+    // 初始化新的SingleFlight缓存系统
+    utils::log_info("Initializing SingleFlight Range Cache with segment count: 16");
+    range_cache_ = std::make_unique<DualRocksDBCacheInterface>(16);
 }
 
 DualRocksDBStrategy::~DualRocksDBStrategy() {
@@ -50,8 +47,15 @@ bool DualRocksDBStrategy::initialize(rocksdb::DB* main_db) {
         return false;
     }
     
+  
+    // 设置range缓存的查询函数
+    range_cache_->set_query_function([this](const std::string& addr_slot) -> std::vector<uint32_t> {
+        return get_address_ranges(range_index_db_.get(), addr_slot);
+    });
+
     log_info("DualRocksDBStrategy initialized with range-based partitioning");
     log_info("Using storage strategy: {}", get_strategy_name());
+    log_info("SingleFlight Range Cache initialized and query function set");
     return true;
 }
 
@@ -111,9 +115,9 @@ bool DualRocksDBStrategy::write_initial_load_batch(rocksdb::DB* db, const std::v
 
 std::optional<Value> DualRocksDBStrategy::query_latest_value(rocksdb::DB* db, const std::string& addr_slot) {
     total_reads_++;
-    
+
     // 简化实现：直接查询最新值，主要用于接口兼容
-    std::vector<uint32_t> ranges = get_address_ranges(range_index_db_.get(), addr_slot);
+    std::vector<uint32_t> ranges = range_cache_->get_address_ranges(addr_slot);
     if (ranges.empty()) {
         return std::nullopt;
     }
@@ -128,8 +132,8 @@ std::optional<Value> DualRocksDBStrategy::query_historical_version(rocksdb::DB* 
                                                                     BlockNum target_version) {
     // 实现复杂语义：≤target_version找最新，找不到则找≥的最小值
     total_reads_++;
-    
-    std::vector<uint32_t> ranges = get_address_ranges(range_index_db_.get(), addr_slot);
+
+    std::vector<uint32_t> ranges = range_cache_->get_address_ranges(addr_slot);
     if (ranges.empty()) {
         return std::nullopt;
     }
@@ -176,8 +180,9 @@ bool DualRocksDBStrategy::cleanup(rocksdb::DB* db) {
     // 刷写所有待写入的批次
     flush_all_batches();
 
-    if (cache_manager_) {
-        cache_manager_->clear_all();
+    // 清理新的缓存系统
+    if (range_cache_) {
+        range_cache_->clear_cache();
     }
 
     // 打印详细的RocksDB Map Properties - Range Index DB
@@ -306,9 +311,7 @@ bool DualRocksDBStrategy::cleanup(rocksdb::DB* db) {
 
 void DualRocksDBStrategy::set_config(const Config& config) {
     config_ = config;
-    if (cache_manager_) {
-        cache_manager_->set_config(config.hot_cache_ratio, config.medium_cache_ratio);
-    }
+    // 新的缓存系统配置在初始化时设置，这里不需要额外操作
 }
 
 double DualRocksDBStrategy::get_cache_hit_rate() const {
@@ -460,21 +463,6 @@ std::vector<uint32_t> DualRocksDBStrategy::get_address_ranges(rocksdb::DB* db, c
     return ranges;
 }
 
-bool DualRocksDBStrategy::update_range_index(rocksdb::DB* db, const std::string& addr_slot, uint32_t range_num) {
-    std::vector<uint32_t> current_ranges = get_address_ranges(db, addr_slot);
-    
-    // 避免重复添加
-    if (std::find(current_ranges.begin(), current_ranges.end(), range_num) == current_ranges.end()) {
-        current_ranges.push_back(range_num);
-        std::string serialized = serialize_range_list(current_ranges);
-        
-        rocksdb::Status status = db->Put(rocksdb::WriteOptions(), addr_slot, serialized);
-        return status.ok();
-    }
-    
-    return true;
-}
-
 std::vector<uint32_t> DualRocksDBStrategy::deserialize_range_list(const std::string& data) const {
     if (data.empty()) {
         return {};
@@ -500,22 +488,6 @@ std::string DualRocksDBStrategy::serialize_range_list(const std::vector<uint32_t
     }
     
     return result;
-}
-
-void DualRocksDBStrategy::check_memory_pressure() {
-    // 简化的内存压力检查
-    if (!cache_manager_) {
-        return;
-    }
-    
-    size_t current_usage = cache_manager_->get_memory_usage();
-    if (current_usage > config_.max_cache_memory * 0.9) {
-        // 内存压力超过90%，清理缓存
-        cache_manager_->evict_least_used();
-    }
-    
-    // 定期清理过期缓存
-    cache_manager_->clear_expired();
 }
 
 
@@ -680,10 +652,7 @@ DualRocksDBStrategy::collect_range_updates_for_hotspot(const std::vector<DataRec
             updates.ranges_to_update[record.addr_slot] = current_ranges;
         }
         
-        // 更新访问模式
-        if (cache_manager_) {
-            cache_manager_->update_access_pattern(record.addr_slot, true);
-        }
+        // 新的缓存系统不需要显式的访问模式更新
     }
     
     return updates;

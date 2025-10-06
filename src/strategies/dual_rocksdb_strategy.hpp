@@ -1,7 +1,7 @@
 #pragma once
 #include "../core/storage_strategy.hpp"
 #include "../utils/logger.hpp"
-#include "dual_rocksdb_cache_manager.hpp"
+#include "dual_rocksdb_cache_interface.hpp"
 #include <rocksdb/db.h>
 #include <rocksdb/statistics.h>
 #include <memory>
@@ -24,8 +24,8 @@ private:
     std::unique_ptr<rocksdb::DB> range_index_db_;
     std::unique_ptr<rocksdb::DB> data_storage_db_;
     
-    // 自适应缓存管理器
-    std::unique_ptr<AdaptiveCacheManager> cache_manager_;
+    // 新的SingleFlight缓存系统
+    std::unique_ptr<DualRocksDBCacheInterface> range_cache_;
     
         
   public:
@@ -141,7 +141,6 @@ private:
                                                      BlockNum min_block = 0) const;
     
     // 范围管理
-    bool update_range_index(rocksdb::DB* db, const std::string& addr_slot, uint32_t range_num);
     std::vector<uint32_t> get_address_ranges(rocksdb::DB* db, const std::string& addr_slot) const;
     
     // 双DB操作
@@ -162,8 +161,6 @@ private:
     // 通用统计方法
     uint64_t get_compaction_statistic(rocksdb::Tickers ticker_type) const;
     
-    // 内存管理
-    void check_memory_pressure();
     
     // 批量写入管理
     void flush_pending_batches();
