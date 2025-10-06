@@ -183,6 +183,9 @@ void BenchmarkConfig::print_help(const std::string &program_name) {
                "(default: 5)\n";
   std::cout << "  --max-batch-size-bytes N    Maximum batch size in bytes "
                "(default: 4GB)\n";
+  std::cout << "  --enable-dynamic-cache-optimization\n"
+               "                              Enable dynamic cache optimization "
+               "(for DualRocksDB strategy)\n";
   std::cout << "\nExamples:\n";
   std::cout << "  " << program_name
             << " --strategy direct_version --total-keys 1000 --duration 60\n";
