@@ -61,7 +61,6 @@ nohup ./build/rocksdb_bench_app \
     --strategy dual_rocksdb_adaptive \
     --batch-size-blocks 75000 \
     --max-batch-size-bytes 322122547200 \
-    --enable-dynamic-cache-optimization \
     --clean-data \
     > logs/benchmark_dual_${TIMESTAMP2}.log 2>&1
 

@@ -13,14 +13,9 @@ using namespace utils;
 DualRocksDBStrategy::DualRocksDBStrategy(const Config& config)
     : config_(config) {
 
-    // 根据配置决定是否初始化缓存系统
-    if (config_.enable_dynamic_cache_optimization) {
-        utils::log_info("Initializing SingleFlight Range Cache with segment count: 16");
-        range_cache_ = std::make_unique<DualRocksDBCacheInterface>(16);
-    } else {
-        utils::log_info("Dynamic cache optimization disabled - using direct database queries");
-        range_cache_ = nullptr;
-    }
+    // 先不测试cache的情况了.
+    utils::log_info("Dynamic cache optimization disabled - using direct database queries");
+    range_cache_ = nullptr;
 }
 
 DualRocksDBStrategy::~DualRocksDBStrategy() {
