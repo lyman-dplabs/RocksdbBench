@@ -45,7 +45,8 @@ public:
     virtual std::optional<Value> query_historical_version(rocksdb::DB* db, 
                                                          const std::string& addr_slot, 
                                                          BlockNum target_version) {
-        // 默认实现：返回最新值（用于不支持历史版本的策略）
+        // 默认实现：返回最新值（用于不支持历史版本的策略） 只有page index会走入这里
+        // 为了兼容性没删除
         return query_latest_value(db, addr_slot);
     }
     

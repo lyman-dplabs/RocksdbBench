@@ -281,14 +281,10 @@ void StrategyScenarioRunner::reader_thread_function(int thread_id, std::chrono::
         if (elapsed >= test_duration) {
             break;
         }
-        BlockNum max_block;
-        {
-            std::lock_guard<std::mutex> lock(state_mutex_);
-            max_block = current_max_block_;
-        }
+        BlockNum max_block = current_max_block_;
 
         std::uniform_int_distribution<size_t> key_dist(0, all_keys.size() - 1);
-        std::uniform_int_distribution<BlockNum> version_dist(0, max_block);
+        std::uniform_int_distribution<BlockNum> version_dist(initial_load_end_block_, max_block);
 
         size_t key_idx = key_dist(gen);
         BlockNum target_version = version_dist(gen);

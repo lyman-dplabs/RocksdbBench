@@ -13,9 +13,14 @@ using namespace utils;
 DualRocksDBStrategy::DualRocksDBStrategy(const Config& config)
     : config_(config) {
 
-    // 初始化新的SingleFlight缓存系统
-    utils::log_info("Initializing SingleFlight Range Cache with segment count: 16");
-    range_cache_ = std::make_unique<DualRocksDBCacheInterface>(16);
+    // 根据配置决定是否初始化缓存系统
+    if (config_.enable_dynamic_cache_optimization) {
+        utils::log_info("Initializing SingleFlight Range Cache with segment count: 16");
+        range_cache_ = std::make_unique<DualRocksDBCacheInterface>(16);
+    } else {
+        utils::log_info("Dynamic cache optimization disabled - using direct database queries");
+        range_cache_ = nullptr;
+    }
 }
 
 DualRocksDBStrategy::~DualRocksDBStrategy() {
@@ -47,15 +52,16 @@ bool DualRocksDBStrategy::initialize(rocksdb::DB* main_db) {
         return false;
     }
     
-  
-    // 设置range缓存的查询函数
-    range_cache_->set_query_function([this](const std::string& addr_slot) -> std::vector<uint32_t> {
-        return get_address_ranges(range_index_db_.get(), addr_slot);
-    });
+    // 只有启用缓存时才设置查询函数
+    if (range_cache_) {
+        range_cache_->set_query_function([this](const std::string& addr_slot) -> std::vector<uint32_t> {
+            return get_address_ranges(range_index_db_.get(), addr_slot);
+        });
+        log_info("SingleFlight Range Cache initialized and query function set");
+    }
 
     log_info("DualRocksDBStrategy initialized with range-based partitioning");
     log_info("Using storage strategy: {}", get_strategy_name());
-    log_info("SingleFlight Range Cache initialized and query function set");
     return true;
 }
 
@@ -116,8 +122,16 @@ bool DualRocksDBStrategy::write_initial_load_batch(rocksdb::DB* db, const std::v
 std::optional<Value> DualRocksDBStrategy::query_latest_value(rocksdb::DB* db, const std::string& addr_slot) {
     total_reads_++;
 
-    // 简化实现：直接查询最新值，主要用于接口兼容
-    std::vector<uint32_t> ranges = range_cache_->get_address_ranges(addr_slot);
+    // 获取地址的range列表 - 支持缓存和直接查询两种模式
+    std::vector<uint32_t> ranges;
+    if (range_cache_) {
+        // 使用缓存查询
+        ranges = range_cache_->get_address_ranges(addr_slot);
+    } else {
+        // 直接查询数据库
+        ranges = get_address_ranges(range_index_db_.get(), addr_slot);
+    }
+    
     if (ranges.empty()) {
         return std::nullopt;
     }
@@ -133,7 +147,16 @@ std::optional<Value> DualRocksDBStrategy::query_historical_version(rocksdb::DB* 
     // 实现复杂语义：≤target_version找最新，找不到则找≥的最小值
     total_reads_++;
 
-    std::vector<uint32_t> ranges = range_cache_->get_address_ranges(addr_slot);
+    // 获取地址的range列表 - 支持缓存和直接查询两种模式
+    std::vector<uint32_t> ranges;
+    if (range_cache_) {
+        // 使用缓存查询
+        ranges = range_cache_->get_address_ranges(addr_slot);
+    } else {
+        // 直接查询数据库
+        ranges = get_address_ranges(range_index_db_.get(), addr_slot);
+    }
+    
     if (ranges.empty()) {
         return std::nullopt;
     }
@@ -159,17 +182,7 @@ std::optional<Value> DualRocksDBStrategy::query_historical_version(rocksdb::DB* 
         // 找到了≤target_version的最新版本
         return std::to_string(best_result->first) + ":" + best_result->second;
     }
-    
-    // 第二步：没找到≤target_version的版本，查找≥target_version的最小值
-    for (uint32_t range_num : ranges) {
-        if (range_num < target_range) continue; // 跳过<target_range的范围
-        
-        auto result = find_minimum_block_in_range(data_storage_db_.get(), range_num, addr_slot, target_version);
-        if (result.has_value()) {
-            return result; // 已经是"block_num:value"格式
-        }
-    }
-    
+
     utils::log_debug("No version found for key {} at or around target version {}", 
                      addr_slot.substr(0, 8), target_version);
     return std::nullopt;

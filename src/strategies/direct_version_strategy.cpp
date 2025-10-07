@@ -151,15 +151,6 @@ std::optional<Value> DirectVersionStrategy::query_historical_version(rocksdb::DB
         return result_with_block;
     }
     
-    // 第二步：没找到≤target_version的版本，查找≥target_version的最小值
-    utils::log_debug("No version <= {} found for key {}, searching for >= minimum", 
-                     target_version, addr_slot.substr(0, 8));
-    
-    auto next_result = find_minimum_ge_version(db, addr_slot, target_version);
-    if (next_result.has_value()) {
-        return next_result;
-    }
-    
     utils::log_debug("No version found for key {} at or around target version {}", 
                      addr_slot.substr(0, 8), target_version);
     return std::nullopt;
