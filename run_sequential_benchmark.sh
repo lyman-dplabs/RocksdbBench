@@ -30,6 +30,7 @@ echo "Log file: logs/benchmark_direct_${TIMESTAMP1}.log"
 # 运行direct版本（等待完成，不使用&）
 nohup ./build/rocksdb_bench_app \
     --strategy direct_version \
+    --total-keys 2000000000 \
     --batch-size-blocks 75000 \
     --max-batch-size-bytes 322122547200 \
     --clean-data \
@@ -59,6 +60,7 @@ echo "Log file: logs/benchmark_dual_${TIMESTAMP2}.log"
 # 运行dual版本（等待完成，不使用&）
 nohup ./build/rocksdb_bench_app \
     --strategy dual_rocksdb_adaptive \
+    --total-keys 2000000000 \
     --batch-size-blocks 75000 \
     --max-batch-size-bytes 322122547200 \
     --clean-data \
