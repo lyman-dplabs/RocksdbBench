@@ -31,7 +31,7 @@ echo "Log file: logs/benchmark_direct_${TIMESTAMP1}.log"
 nohup ./build/rocksdb_bench_app \
     --strategy direct_version \
     --total-keys 2000000000 \
-    --batch-size-blocks 75000 \
+    --batch-size-blocks 10000 \
     --max-batch-size-bytes 322122547200 \
     --clean-data \
     > logs/benchmark_direct_${TIMESTAMP1}.log 2>&1
@@ -61,7 +61,7 @@ echo "Log file: logs/benchmark_dual_${TIMESTAMP2}.log"
 nohup ./build/rocksdb_bench_app \
     --strategy dual_rocksdb_adaptive \
     --total-keys 2000000000 \
-    --batch-size-blocks 75000 \
+    --batch-size-blocks 10000 \
     --max-batch-size-bytes 322122547200 \
     --clean-data \
     > logs/benchmark_dual_${TIMESTAMP2}.log 2>&1
