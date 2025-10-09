@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <ctime>
 #include <stdexcept>
+#include <filesystem>
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 #include <rocksdb/iterator.h>
@@ -32,10 +33,11 @@ std::vector<std::string> extract_addresses_from_range_db(rocksdb::DB* range_db) 
     std::cout << "Extracting addresses from Range Index DB..." << std::endl;
     
     std::vector<std::string> addresses;
+    addresses.reserve(20000000000ULL);
     rocksdb::Iterator* it = range_db->NewIterator(rocksdb::ReadOptions());
     
     size_t count = 0;
-    size_t batch_size = 10000000;  // 每批处理1000万个地址，避免内存问题
+    size_t batch_size = 100000000;  // 每批处理1亿个地址，避免内存问题
     
     try {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -44,7 +46,7 @@ std::vector<std::string> extract_addresses_from_range_db(rocksdb::DB* range_db) 
                 addresses.push_back(key);
                 count++;
                 
-                // 每处理1000万个地址打印一次进度
+                // 每处理1亿个地址打印一次进度
                 if (count % batch_size == 0) {
                     std::cout << "  Extracted " << count << " addresses..." << std::endl;
                     
@@ -116,22 +118,50 @@ BlockNum find_max_block_from_data_db(rocksdb::DB* data_db) {
     return max_block;
 }
 
-// 打开现有数据库
+// 打开现有数据库（优化大数据库打开性能）
 rocksdb::DB* open_existing_db(const std::string& db_path) {
     std::cout << "Opening database at: " << db_path << std::endl;
+    
+    // 获取数据库大小信息
+    std::uintmax_t db_size = 0;
+    if (std::filesystem::exists(db_path)) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(db_path)) {
+            if (entry.is_regular_file()) {
+                db_size += entry.file_size();
+            }
+        }
+    }
+    
+    std::cout << "Database size: " << (db_size / 1024 / 1024 / 1024) << " GB" << std::endl;
+    std::cout << "This may take a while for large databases..." << std::endl;
     
     rocksdb::Options options;
     options.create_if_missing = false;
     options.use_direct_io_for_flush_and_compaction = true;
     
+    // 大数据库优化配置
+    options.max_background_compactions = 16;
+    options.max_background_flushes = 8;
+    options.max_open_files = -1;  // 不限制文件句柄数量
+    options.skip_stats_update_on_db_open = true;  // 跳过统计更新，加快打开速度
+    options.allow_mmap_reads = true;  // 允许mmap读取，可能提高大文件性能
+    
+    // 显示进度
+    auto start_time = std::chrono::steady_clock::now();
+    std::cout << "Starting RocksDB open process..." << std::endl;
+    
     rocksdb::DB* db;
     rocksdb::Status status = rocksdb::DB::Open(options, db_path, &db);
     
+    auto end_time = std::chrono::steady_clock::now();
+    auto open_duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
+    
     if (!status.ok()) {
+        std::cerr << "Failed to open database after " << open_duration.count() << " seconds" << std::endl;
         throw std::runtime_error("Failed to open database at " + db_path + ": " + status.ToString());
     }
     
-    std::cout << "Successfully opened database: " << db_path << std::endl;
+    std::cout << "Successfully opened database: " << db_path << " in " << open_duration.count() << " seconds" << std::endl;
     return db;
 }
 
@@ -184,7 +214,6 @@ void run_concurrent_test_with_recovered_data(
     // 创建指标收集器
     auto metrics_collector = std::make_shared<MetricsCollector>();
     
-    // 创建使用恢复数据的DataGenerator
     DataGenerator::Config data_config;
     data_config.total_keys = addresses.size();
     data_config.hotspot_count = static_cast<size_t>(addresses.size() * 0.8);  // 80% hot keys
