@@ -33,7 +33,7 @@ std::vector<std::string> extract_addresses_from_range_db(rocksdb::DB* range_db) 
     std::cout << "Extracting addresses from Range Index DB..." << std::endl;
     
     std::vector<std::string> addresses;
-    addresses.reserve(100000000);
+    addresses.reserve(2000000000);
     rocksdb::Iterator* it = range_db->NewIterator(rocksdb::ReadOptions());
     
     size_t count = 0;
@@ -51,7 +51,7 @@ std::vector<std::string> extract_addresses_from_range_db(rocksdb::DB* range_db) 
                     std::cout << "  Extracted " << count << " addresses..." << std::endl;
                     
                     // 预分配内存以提高性能
-                    addresses.reserve(addresses.size() + batch_size);
+                    // addresses.reserve(addresses.size() + batch_size);
                 }
             }
             
@@ -144,7 +144,6 @@ rocksdb::DB* open_existing_db(const std::string& db_path) {
     options.max_background_flushes = 8;
     options.max_open_files = -1;  // 不限制文件句柄数量
     options.skip_stats_update_on_db_open = true;  // 跳过统计更新，加快打开速度
-    options.allow_mmap_reads = true;  // 允许mmap读取，可能提高大文件性能
     
     // 显示进度
     auto start_time = std::chrono::steady_clock::now();
