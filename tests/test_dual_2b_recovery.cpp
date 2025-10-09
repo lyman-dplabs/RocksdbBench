@@ -33,7 +33,7 @@ std::vector<std::string> extract_addresses_from_range_db(rocksdb::DB* range_db) 
     std::cout << "Extracting addresses from Range Index DB..." << std::endl;
     
     std::vector<std::string> addresses;
-    addresses.reserve(20000000000ULL);
+    addresses.reserve(100000000);
     rocksdb::Iterator* it = range_db->NewIterator(rocksdb::ReadOptions());
     
     size_t count = 0;
