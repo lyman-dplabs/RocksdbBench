@@ -169,6 +169,7 @@ rocksdb::DB* open_existing_db(const std::string& db_path) {
 void run_concurrent_test_with_recovered_data(
     rocksdb::DB* range_db,
     rocksdb::DB* data_db,
+    std::string db_path,
     std::vector<std::string> addresses,
     BlockNum max_block,
     size_t duration_seconds) {
@@ -177,9 +178,6 @@ void run_concurrent_test_with_recovered_data(
     std::cout << "Test duration: " << duration_seconds << " seconds" << std::endl;
     std::cout << "Addresses: " << addresses.size() << std::endl;
     std::cout << "Max block: " << max_block << std::endl;
-    
-    // 创建临时主数据库路径，用于DualRocksDB策略初始化
-    std::string temp_main_db_path = "/tmp/temp_dual_main_db_" + std::to_string(std::time(nullptr));
     
     // 创建DualRocksDB策略配置
     DualRocksDBStrategy::Config strategy_config;
@@ -191,13 +189,13 @@ void run_concurrent_test_with_recovered_data(
     // 创建DualRocksDB策略
     auto strategy = std::make_unique<DualRocksDBStrategy>(strategy_config);
     
-    std::cout << "Creating temporary main database at: " << temp_main_db_path << std::endl;
+    std::cout << "Creating temporary main database at: " << db_path << std::endl;
     
     // 创建数据库管理器
-    auto db_manager = std::make_shared<StrategyDBManager>(temp_main_db_path, std::move(strategy));
+    auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     
     if (!db_manager->open(true)) {  // force_clean = true
-        rocksdb::DestroyDB(temp_main_db_path, rocksdb::Options());
+        rocksdb::DestroyDB(db_path, rocksdb::Options());
         throw std::runtime_error("Failed to open database manager");
     }
     
@@ -252,7 +250,7 @@ void run_concurrent_test_with_recovered_data(
     } catch (const std::exception& e) {
         std::cerr << "Error during concurrent test: " << e.what() << std::endl;
         // 清理临时数据库
-        rocksdb::DestroyDB(temp_main_db_path, rocksdb::Options());
+        rocksdb::DestroyDB(db_path, rocksdb::Options());
         throw;
     }
     
@@ -270,7 +268,7 @@ void run_concurrent_test_with_recovered_data(
     scenario_runner->collect_rocksdb_statistics();
     
     // 清理临时数据库
-    rocksdb::DestroyDB(temp_main_db_path, rocksdb::Options());
+    rocksdb::DestroyDB(db_path, rocksdb::Options());
     
     std::cout << "Concurrent test completed successfully!" << std::endl;
     std::cout << "Note: Test used Dual RocksDB strategy with simulated workload based on recovered data characteristics" << std::endl;
@@ -279,18 +277,18 @@ void run_concurrent_test_with_recovered_data(
 int main(int argc, char** argv) {
     CLI::App app{"Dual RocksDB 2B Recovery Test - Test with existing 2B database"};
     
-    std::string range_db_path;
-    std::string data_db_path;
+    std::string db_path;
     size_t duration_seconds = 900;  // 默认15分钟
     
-    app.add_option("-r,--range-db", range_db_path, "Path to range index database")
-        ->required();
-    
-    app.add_option("-d,--data-db", data_db_path, "Path to data storage database")
-        ->required();
-        
+    app.add_option("-p,--db-path", db_path, "Path to both db")
+        ->default_val("./rocksdb_data");
+
+
     app.add_option("-t,--duration", duration_seconds, "Test duration in seconds (default: 900)")
         ->check(CLI::PositiveNumber);
+    
+    std::string range_db_path = db_path + "_range_index";
+    std::string data_db_path = db_path + "_data_storage";
     
     bool verbose = false;
     app.add_flag("-v,--verbose", verbose, "Enable verbose output");
@@ -319,7 +317,7 @@ int main(int argc, char** argv) {
         
         // 3. 运行测试
         auto start_time = std::chrono::steady_clock::now();
-        run_concurrent_test_with_recovered_data(range_db, data_db, addresses, max_block, duration_seconds);
+        run_concurrent_test_with_recovered_data(range_db, data_db, db_path, std::move(addresses), max_block, duration_seconds);
         auto end_time = std::chrono::steady_clock::now();
         
         auto actual_duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
