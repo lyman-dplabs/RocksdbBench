@@ -35,7 +35,7 @@ std::vector<std::string> extract_addresses_from_range_db(rocksdb::DB* range_db) 
     rocksdb::Iterator* it = range_db->NewIterator(rocksdb::ReadOptions());
     
     size_t count = 0;
-    size_t batch_size = 100000;  // 每批处理10万个地址，避免内存问题
+    size_t batch_size = 10000000;  // 每批处理1000万个地址，避免内存问题
     
     try {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -44,7 +44,7 @@ std::vector<std::string> extract_addresses_from_range_db(rocksdb::DB* range_db) 
                 addresses.push_back(key);
                 count++;
                 
-                // 每处理10万个地址打印一次进度
+                // 每处理1000万个地址打印一次进度
                 if (count % batch_size == 0) {
                     std::cout << "  Extracted " << count << " addresses..." << std::endl;
                     
