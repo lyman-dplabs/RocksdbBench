@@ -13,6 +13,9 @@ add_executable(test_lock_optimization test_lock_optimization.cpp)
 # SingleFlight Cache tests with GTest
 add_executable(test_singleflight_cache test_singleflight_cache.cpp)
 
+# Dual 2B Recovery Test
+add_executable(test_dual_2b_recovery test_dual_2b_recovery.cpp)
+
 # Historical version query test
 target_link_libraries(test_historical_version_query
     PRIVATE
@@ -72,4 +75,16 @@ target_link_libraries(test_singleflight_cache
         GTest::gtest_main
         GTest::gmock
         strategies_lib
+)
+
+# Dual 2B Recovery Test
+target_link_libraries(test_dual_2b_recovery
+    PRIVATE
+        core_lib
+        benchmark_lib
+        utils_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
+        CLI11::CLI11
 )

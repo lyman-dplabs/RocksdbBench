@@ -11,6 +11,19 @@ DataGenerator::DataGenerator(const Config& config) : config_(config), rng_(std::
     generate_initial_keys_parallel();
 }
 
+// 新的构造函数：从外部keys初始化（用于recovery test）
+DataGenerator::DataGenerator(std::vector<std::string> external_keys, const Config& config) 
+    : config_(config), all_keys_(std::move(external_keys)), rng_(std::random_device{}()) {
+    // 验证外部keys数量与配置匹配
+    if (all_keys_.size() != config.total_keys) {
+        // 如果不匹配，调整config
+        config_.total_keys = all_keys_.size();
+        config_.hotspot_count = std::min(config_.hotspot_count, all_keys_.size());
+        config_.medium_count = std::min(config_.medium_count, all_keys_.size() - config_.hotspot_count);
+        config_.tail_count = all_keys_.size() - config_.hotspot_count - config_.medium_count;
+    }
+}
+
 void DataGenerator::generate_initial_keys_parallel() {
     all_keys_.resize(config_.total_keys);
     

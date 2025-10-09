@@ -40,6 +40,28 @@ StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager
     });
 }
 
+// 新的构造函数：支持外部DataGenerator（用于recovery test）
+StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager> db_manager,
+                                             std::shared_ptr<MetricsCollector> metrics,
+                                             const BenchmarkConfig& config,
+                                             std::unique_ptr<DataGenerator> external_data_generator)
+    : db_manager_(db_manager), metrics_collector_(metrics), config_(config), 
+      data_generator_(std::move(external_data_generator)) {
+
+    utils::log_info("StrategyScenarioRunner initialized with external DataGenerator");
+
+    const auto& all_keys = data_generator_->get_all_keys();
+    utils::log_info("StrategyScenarioRunner initialized with config:");
+    utils::log_info("  Total Keys: {}", all_keys.size());
+    utils::log_info("  Test Duration: {} minutes", config_.continuous_duration_minutes);
+    utils::log_info("  Using external recovered keys for testing");
+
+    // Set merge callback for metrics collection (for strategies that support it)
+    db_manager_->set_merge_callback([this](size_t merged_values, size_t merged_value_size) {
+        metrics_collector_->record_merge_operation(merged_values, merged_value_size);
+    });
+}
+
 void StrategyScenarioRunner::run_initial_load_phase() {
     utils::log_info("=== Starting Initial Load Phase ===");
 

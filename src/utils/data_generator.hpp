@@ -18,6 +18,9 @@ public:
 
     explicit DataGenerator(const Config& config);
     
+    // 新的构造函数：从外部keys初始化（用于recovery test）
+    DataGenerator(std::vector<std::string> external_keys, const Config& config);
+    
     const std::vector<std::string>& get_all_keys() const { return all_keys_; }
     std::vector<size_t> generate_hotspot_update_indices(size_t batch_size);
     std::string generate_random_value();

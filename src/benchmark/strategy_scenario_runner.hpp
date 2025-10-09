@@ -60,6 +60,12 @@ public:
     StrategyScenarioRunner(std::shared_ptr<StrategyDBManager> db_manager,
                          std::shared_ptr<MetricsCollector> metrics,
                          const BenchmarkConfig& config);
+  
+  // 新的构造函数：支持外部DataGenerator（用于recovery test）
+  StrategyScenarioRunner(std::shared_ptr<StrategyDBManager> db_manager,
+                         std::shared_ptr<MetricsCollector> metrics,
+                         const BenchmarkConfig& config,
+                         std::unique_ptr<DataGenerator> external_data_generator);
 
     void run_initial_load_phase();
 
