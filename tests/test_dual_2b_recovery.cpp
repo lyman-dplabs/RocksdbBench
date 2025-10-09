@@ -37,7 +37,7 @@ std::vector<std::string> extract_addresses_from_range_db(rocksdb::DB* range_db) 
     rocksdb::Iterator* it = range_db->NewIterator(rocksdb::ReadOptions());
     
     size_t count = 0;
-    size_t batch_size = 100000000;  // 每批处理1亿个地址，避免内存问题
+    size_t batch_size = 500000000;  // 每批处理1亿个地址，避免内存问题
     
     try {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -167,8 +167,6 @@ rocksdb::DB* open_existing_db(const std::string& db_path) {
 
 // 运行并发测试 - 直接使用现有的DualRocksDB Strategy和ScenarioRunner
 void run_concurrent_test_with_recovered_data(
-    rocksdb::DB* range_db,
-    rocksdb::DB* data_db,
     std::string db_path,
     std::vector<std::string> addresses,
     BlockNum max_block,
@@ -189,13 +187,12 @@ void run_concurrent_test_with_recovered_data(
     // 创建DualRocksDB策略
     auto strategy = std::make_unique<DualRocksDBStrategy>(strategy_config);
     
-    std::cout << "Creating temporary main database at: " << db_path << std::endl;
+    std::cout << "Creating database manager for existing databases at: " << db_path << std::endl;
     
     // 创建数据库管理器
     auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
     
-    if (!db_manager->open(true)) {  // force_clean = true
-        rocksdb::DestroyDB(db_path, rocksdb::Options());
+    if (!db_manager->open(false)) {  // 不强制清理，复用现有数据
         throw std::runtime_error("Failed to open database manager");
     }
     
@@ -249,8 +246,6 @@ void run_concurrent_test_with_recovered_data(
         scenario_runner->run_concurrent_read_write_test(test_config);
     } catch (const std::exception& e) {
         std::cerr << "Error during concurrent test: " << e.what() << std::endl;
-        // 清理临时数据库
-        rocksdb::DestroyDB(db_path, rocksdb::Options());
         throw;
     }
     
@@ -266,9 +261,6 @@ void run_concurrent_test_with_recovered_data(
     
     // 收集RocksDB统计信息
     scenario_runner->collect_rocksdb_statistics();
-    
-    // 清理临时数据库
-    rocksdb::DestroyDB(db_path, rocksdb::Options());
     
     std::cout << "Concurrent test completed successfully!" << std::endl;
     std::cout << "Note: Test used Dual RocksDB strategy with simulated workload based on recovered data characteristics" << std::endl;
@@ -315,19 +307,19 @@ int main(int argc, char** argv) {
         auto addresses = extract_addresses_from_range_db(range_db);
         BlockNum max_block = find_max_block_from_data_db(data_db);
         
-        // 3. 运行测试
+        // 3. 关闭现有的数据库连接，让DualRocksDB策略重新打开
+        std::cout << "Closing existing database connections..." << std::endl;
+        delete range_db;
+        delete data_db;
+        
+        // 4. 运行测试
         auto start_time = std::chrono::steady_clock::now();
-        run_concurrent_test_with_recovered_data(range_db, data_db, db_path, std::move(addresses), max_block, duration_seconds);
+        run_concurrent_test_with_recovered_data(db_path, std::move(addresses), max_block, duration_seconds);
         auto end_time = std::chrono::steady_clock::now();
         
         auto actual_duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
         std::cout << "\n=== Test Completed ===" << std::endl;
-        std::cout << "Actual duration: " << actual_duration.count() << " seconds" << std::endl;
-        
-        // 4. 清理资源
-        delete range_db;
-        delete data_db;
-        
+        std::cout << "Actual duration: " << actual_duration.count() << " seconds" << std::endl;        
         std::cout << "Test completed successfully!" << std::endl;
         return 0;
         
