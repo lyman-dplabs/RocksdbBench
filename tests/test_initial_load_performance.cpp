@@ -24,14 +24,14 @@ int main(int argc, char** argv) {
     CLI::App app{"Initial Load Performance Test - 1B Keys"};
     
     std::string db_path = "./rocksdb_data_initial_load_test";
-    size_t total_keys = 100000000;  // 1亿条key
+    size_t total_keys = 1000000;  // 100万条key
     bool verbose = false;
     
     app.add_option("-p,--db-path", db_path, "Database path")
         ->default_val("./rocksdb_data_initial_load_test");
     
     app.add_option("-k,--total-keys", total_keys, "Total number of keys to generate")
-        ->default_val(100000000)
+        ->default_val(1000000)
         ->check(CLI::PositiveNumber);
     
     app.add_flag("-v,--verbose", verbose, "Enable verbose output");
@@ -114,7 +114,7 @@ int main(int argc, char** argv) {
         auto data_generator = std::make_unique<DataGenerator>(data_config);
         
         // 创建ScenarioRunner
-        auto scenario_runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config, std::move(data_generator), 1);
+        auto scenario_runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config, std::move(data_generator), 1, 1);
         
         std::cout << "Starting initial load phase..." << std::endl;
         std::cout << "This may take a while for 1B keys..." << std::endl;
@@ -140,15 +140,13 @@ int main(int argc, char** argv) {
         // 获取数据库统计信息
         scenario_runner->collect_rocksdb_statistics();
         
-        // 清理数据库
-        std::cout << "\nCleaning up databases..." << std::endl;
+        // 保持数据库不清理，用于recovery test
+        std::cout << "\nKeeping databases for recovery test..." << std::endl;
+        std::cout << "Range DB: " << range_db_path << std::endl;
+        std::cout << "Data DB: " << data_db_path << std::endl;
         db_manager.reset();  // 确保数据库正确关闭
         
-        std::filesystem::remove_all(db_path);
-        std::filesystem::remove_all(range_db_path);
-        std::filesystem::remove_all(data_db_path);
-        
-        std::cout << "Test completed successfully!" << std::endl;
+        std::cout << "Test completed successfully! Database kept for recovery test." << std::endl;
         return 0;
         
     } catch (const std::exception& e) {

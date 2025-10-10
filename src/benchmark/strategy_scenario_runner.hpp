@@ -66,7 +66,8 @@ public:
                          std::shared_ptr<MetricsCollector> metrics,
                          const BenchmarkConfig& config,
                          std::unique_ptr<DataGenerator> external_data_generator,
-                         size_t initial_load_end_block);
+                         size_t initial_load_end_block,
+                         size_t max_block);
 
     void run_initial_load_phase();
 

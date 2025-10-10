@@ -79,18 +79,22 @@ std::vector<std::string> extract_addresses_from_range_db(rocksdb::DB* range_db) 
     return addresses;
 }
 
-// 从Data Storage DB获取最大block number
-BlockNum find_max_block_from_data_db(rocksdb::DB* data_db) {
-    std::cout << "Finding maximum block number from Data Storage DB..." << std::endl;
+// 从Data Storage DB遍历所有keys找到真正的最大block number
+BlockNum find_actual_max_block_from_data_db(rocksdb::DB* data_db, size_t address_count) {
+    std::cout << "Finding actual max block number from Data Storage DB..." << std::endl;
+    
+    // 先验知识：max block应该 >= address_count / 10000
+    size_t expected_min_blocks = address_count / 10000;
+    std::cout << "Expected minimum blocks based on address count: " << expected_min_blocks << std::endl;
     
     BlockNum max_block = 0;
     rocksdb::Iterator* it = data_db->NewIterator(rocksdb::ReadOptions());
     
-    // 从最后一条记录开始查找
-    it->SeekToLast();
-    
-    if (it->Valid()) {
+    size_t total_keys = 0;
+    // 遍历所有keys来找到真正的最大block number
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
         std::string key = it->key().ToString();
+        total_keys++;
         
         // 解析key格式: R{range_num}|{addr_slot}|{block_number}
         if (key.rfind("R", 0) == 0) {  // key以'R'开头
@@ -98,18 +102,33 @@ BlockNum find_max_block_from_data_db(rocksdb::DB* data_db) {
             if (last_pipe != std::string::npos && last_pipe < key.length() - 1) {
                 std::string block_str = key.substr(last_pipe + 1);
                 try {
-                    max_block = std::stoull(block_str);
-                    std::cout << "Found max block: " << max_block << std::endl;
-                    std::cout << "Sample key: " << key << std::endl;
+                    BlockNum block_num = std::stoull(block_str);
+                    if (block_num > max_block) {
+                        max_block = block_num;
+                    }
                 } catch (const std::exception& e) {
-                    std::cerr << "Error parsing block number from key: " << key << std::endl;
-                    std::cerr << "Error: " << e.what() << std::endl;
+                    // 忽略解析错误的key
+                    continue;
                 }
             }
+        }
+        
+        // 每处理100万个keys打印一次进度
+        if (total_keys % 1000000 == 0) {
+            std::cout << "  Processed " << total_keys << " keys, current max block: " << max_block << std::endl;
         }
     }
     
     delete it;
+    
+    std::cout << "Scanned " << total_keys << " total keys from Data Storage DB" << std::endl;
+    std::cout << "Found actual max block: " << max_block << std::endl;
+    
+    // 验证先验知识
+    if (max_block < expected_min_blocks) {
+        std::cout << "WARNING: Actual max block (" << max_block 
+                  << ") is less than expected minimum (" << expected_min_blocks << ")" << std::endl;
+    }
     
     if (max_block == 0) {
         throw std::runtime_error("Could not find any valid block number in Data Storage DB");
@@ -210,9 +229,9 @@ void run_concurrent_test_with_recovered_data(
     
     DataGenerator::Config data_config;
     data_config.total_keys = addresses.size();
-    data_config.hotspot_count = static_cast<size_t>(addresses.size() * 0.8);  // 80% hot keys
-    data_config.medium_count = static_cast<size_t>(addresses.size() * 0.1);   // 10% medium keys
-    data_config.tail_count = addresses.size() - data_config.hotspot_count - data_config.medium_count;  // 10% tail keys
+    data_config.hotspot_count = static_cast<size_t>(addresses.size() * 0.1);  // 10% hot keys (1)
+    data_config.medium_count = static_cast<size_t>(addresses.size() * 0.2);   // 20% medium keys (2)
+    data_config.tail_count = addresses.size() - data_config.hotspot_count - data_config.medium_count;  // 70% tail keys (7)
     
     auto external_data_generator = std::make_unique<DataGenerator>(std::move(addresses), data_config);
     
@@ -221,7 +240,22 @@ void run_concurrent_test_with_recovered_data(
     std::cout << "  Hot/Medium/Tail keys: " << data_config.hotspot_count << "/" << data_config.medium_count << "/" << data_config.tail_count << std::endl;
     
     // 创建ScenarioRunner，使用外部DataGenerator
-    auto scenario_runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config, std::move(external_data_generator), max_block + 1);
+    // Recovery test的目的：跳过initial load节省时间，直接使用现有数据库进行测试
+    // 根据initial load逻辑：对于1M keys ÷ 10K keys/block = 100 blocks (0-99)
+    // initial_load_end_block_应该是current_max_block_，即实际的max block
+    size_t actual_initial_load_end_block = max_block;  // 使用实际的最大block号码
+    
+    std::cout << "=== Recovery Test Configuration ===" << std::endl;
+    std::cout << "Purpose: Skip initial load, test recovery from existing database" << std::endl;
+    std::cout << "Total addresses recovered: " << external_data_generator->get_all_keys().size() << std::endl;
+    std::cout << "Actual max block found in database: " << max_block << std::endl;
+    std::cout << "Setting initial_load_end_block to: " << actual_initial_load_end_block << std::endl;
+    std::cout << "Query range will be: [" << actual_initial_load_end_block << ", " << max_block << "]" << std::endl;
+    std::cout << "This ensures queries target the latest available data for all addresses" << std::endl;
+    
+    auto scenario_runner = std::make_unique<StrategyScenarioRunner>(
+        db_manager, metrics_collector, benchmark_config, std::move(external_data_generator), 
+        actual_initial_load_end_block, max_block);
     
     // 创建测试配置
     StrategyScenarioRunner::ConcurrentTestConfig test_config;
@@ -279,9 +313,6 @@ int main(int argc, char** argv) {
     app.add_option("-t,--duration", duration_seconds, "Test duration in seconds (default: 900)")
         ->check(CLI::PositiveNumber);
     
-    std::string range_db_path = db_path + "_range_index";
-    std::string data_db_path = db_path + "_data_storage";
-    
     bool verbose = false;
     app.add_flag("-v,--verbose", verbose, "Enable verbose output");
     
@@ -291,6 +322,9 @@ int main(int argc, char** argv) {
         std::cerr << "Parse error: " << e.what() << std::endl;
         return app.exit(e);
     }
+    
+    std::string range_db_path = db_path + "_range_index";
+    std::string data_db_path = db_path + "_data_storage";
     
     std::cout << "=== Dual RocksDB 2B Recovery Test ===" << std::endl;
     std::cout << "Range DB path: " << range_db_path << std::endl;
@@ -305,7 +339,7 @@ int main(int argc, char** argv) {
         
         // 2. 提取数据
         auto addresses = extract_addresses_from_range_db(range_db);
-        BlockNum max_block = find_max_block_from_data_db(data_db);
+        BlockNum max_block = find_actual_max_block_from_data_db(data_db, addresses.size());
         
         // 3. 关闭现有的数据库连接，让DualRocksDB策略重新打开
         std::cout << "Closing existing database connections..." << std::endl;
