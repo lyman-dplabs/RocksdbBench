@@ -19,6 +19,9 @@ add_executable(test_dual_2b_recovery test_dual_2b_recovery.cpp)
 # Initial Load Performance Test
 add_executable(test_initial_load_performance test_initial_load_performance.cpp)
 
+# Data Distribution Analysis Tool
+add_executable(test_data_distribution_analysis test_data_distribution_analysis.cpp)
+
 # Historical version query test
 target_link_libraries(test_historical_version_query
     PRIVATE
@@ -102,4 +105,13 @@ target_link_libraries(test_initial_load_performance
         RocksDB::rocksdb
         fmt::fmt
         CLI11::CLI11
+)
+
+# Data Distribution Analysis Tool
+target_link_libraries(test_data_distribution_analysis
+    PRIVATE
+        core_lib
+        strategies_lib
+        RocksDB::rocksdb
+        fmt::fmt
 )

@@ -339,7 +339,8 @@ int main(int argc, char** argv) {
         
         // 2. 提取数据
         auto addresses = extract_addresses_from_range_db(range_db);
-        BlockNum max_block = find_actual_max_block_from_data_db(data_db, addresses.size());
+        // BlockNum max_block = find_actual_max_block_from_data_db(data_db, addresses.size());
+        BlockNum max_block = addresses.size() / 10000;
         
         // 3. 关闭现有的数据库连接，让DualRocksDB策略重新打开
         std::cout << "Closing existing database connections..." << std::endl;
