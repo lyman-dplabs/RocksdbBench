@@ -221,7 +221,7 @@ void run_concurrent_test_with_recovered_data(
     std::cout << "  Hot/Medium/Tail keys: " << data_config.hotspot_count << "/" << data_config.medium_count << "/" << data_config.tail_count << std::endl;
     
     // 创建ScenarioRunner，使用外部DataGenerator
-    auto scenario_runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config, std::move(external_data_generator));
+    auto scenario_runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config, std::move(external_data_generator), max_block + 1);
     
     // 创建测试配置
     StrategyScenarioRunner::ConcurrentTestConfig test_config;

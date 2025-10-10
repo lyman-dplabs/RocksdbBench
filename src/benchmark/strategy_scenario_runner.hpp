@@ -65,7 +65,8 @@ public:
   StrategyScenarioRunner(std::shared_ptr<StrategyDBManager> db_manager,
                          std::shared_ptr<MetricsCollector> metrics,
                          const BenchmarkConfig& config,
-                         std::unique_ptr<DataGenerator> external_data_generator);
+                         std::unique_ptr<DataGenerator> external_data_generator,
+                         size_t initial_load_end_block);
 
     void run_initial_load_phase();
 

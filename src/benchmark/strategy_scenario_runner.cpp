@@ -41,12 +41,15 @@ StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager
 }
 
 // 新的构造函数：支持外部DataGenerator（用于recovery test）
-StrategyScenarioRunner::StrategyScenarioRunner(std::shared_ptr<StrategyDBManager> db_manager,
-                                             std::shared_ptr<MetricsCollector> metrics,
-                                             const BenchmarkConfig& config,
-                                             std::unique_ptr<DataGenerator> external_data_generator)
-    : db_manager_(db_manager), metrics_collector_(metrics), config_(config), 
-      data_generator_(std::move(external_data_generator)) {
+StrategyScenarioRunner::StrategyScenarioRunner(
+    std::shared_ptr<StrategyDBManager> db_manager,
+    std::shared_ptr<MetricsCollector> metrics, const BenchmarkConfig &config,
+    std::unique_ptr<DataGenerator> external_data_generator,
+    size_t initial_load_end_block)
+    : db_manager_(db_manager), metrics_collector_(metrics), config_(config),
+      data_generator_(std::move(external_data_generator)),
+      initial_load_end_block_(initial_load_end_block),
+      current_max_block_(initial_load_end_block - 1) {
 
     utils::log_info("StrategyScenarioRunner initialized with external DataGenerator");
 

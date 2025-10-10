@@ -68,12 +68,12 @@ int main(int argc, char** argv) {
         
         std::cout << "Database cleanup completed" << std::endl;
         
-        // 创建DualRocksDB策略配置
+        // 创建DualRocksDB策略配置（参考run_sequential_benchmark.sh的大批量配置）
         DualRocksDBStrategy::Config strategy_config;
         strategy_config.range_size = 10000;
         strategy_config.enable_dynamic_cache_optimization = false;  // 使用直接查询模式
-        strategy_config.batch_size_blocks = 10;  // 每10个block刷写一次
-        strategy_config.max_batch_size_bytes = 1024 * 1024 * 1024; // 1GB
+        strategy_config.batch_size_blocks = 10000;  // 每万个block刷写一次（与run_sequential_benchmark.sh一致）
+        strategy_config.max_batch_size_bytes = 322122547200ULL; // 300GB（与run_sequential_benchmark.sh一致）
         
         // 创建DualRocksDB策略
         auto strategy = std::make_unique<DualRocksDBStrategy>(strategy_config);
@@ -105,14 +105,16 @@ int main(int argc, char** argv) {
         data_config.medium_count = static_cast<size_t>(total_keys * 0.2);  // 20% medium keys
         data_config.tail_count = total_keys - data_config.hotspot_count - data_config.medium_count;  // 70% tail keys
         
-        std::cout << "Creating DataGenerator..." << std::endl;
+        std::cout << "Creating DataGenerator with large batch configuration..." << std::endl;
         std::cout << "  Total keys: " << data_config.total_keys << std::endl;
         std::cout << "  Hot/Medium/Tail keys: " << data_config.hotspot_count << "/" << data_config.medium_count << "/" << data_config.tail_count << std::endl;
+        std::cout << "  Batch size blocks: " << strategy_config.batch_size_blocks << std::endl;
+        std::cout << "  Max batch size bytes: " << (strategy_config.max_batch_size_bytes / 1024 / 1024 / 1024) << " GB" << std::endl;
         
         auto data_generator = std::make_unique<DataGenerator>(data_config);
         
         // 创建ScenarioRunner
-        auto scenario_runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config, std::move(data_generator));
+        auto scenario_runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config, std::move(data_generator), 1);
         
         std::cout << "Starting initial load phase..." << std::endl;
         std::cout << "This may take a while for 1B keys..." << std::endl;
