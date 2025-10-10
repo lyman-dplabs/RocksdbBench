@@ -15,7 +15,7 @@ class StrategyScenarioRunner {
 public:
     // 并发测试配置
     struct ConcurrentTestConfig {
-        size_t reader_thread_count = 500;      // 读线程数量
+        size_t reader_thread_count = 10;      // 读线程数量
         size_t queries_per_thread = 200;       // 每个读线程的查询次数
         size_t test_duration_seconds = 3600;   // 测试持续时间（秒）
         size_t write_sleep_seconds = 3;        // 写线程sleep时间

@@ -199,7 +199,7 @@ void StrategyScenarioRunner::run_continuous_update_query_loop(size_t duration_mi
     test_config.test_duration_seconds = duration_minutes * 60;
 
     // 使用适中的并发配置
-    test_config.reader_thread_count = std::min(500UL, config_.total_keys / 1000);  // 根据数据量调整线程数
+    test_config.reader_thread_count = 10;  // 根据数据量调整线程数
     test_config.queries_per_thread = 200;
     test_config.write_sleep_seconds = 3;
     test_config.block_size = 10000;

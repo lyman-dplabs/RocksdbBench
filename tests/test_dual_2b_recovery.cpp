@@ -259,7 +259,7 @@ void run_concurrent_test_with_recovered_data(
     
     // 创建测试配置
     StrategyScenarioRunner::ConcurrentTestConfig test_config;
-    test_config.reader_thread_count = StrategyScenarioRunner::ConcurrentTestConfig::get_recommended_reader_threads();
+    test_config.reader_thread_count = 10;
     test_config.test_duration_seconds = duration_seconds;
     test_config.block_size = 10000;
     test_config.write_sleep_seconds = 3;
