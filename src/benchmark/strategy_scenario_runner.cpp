@@ -156,7 +156,7 @@ void StrategyScenarioRunner::run_concurrent_read_write_test(const ConcurrentTest
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // 启动读线程 - 使用CPU核心数*2的数量
-    size_t actual_reader_thread_count = ConcurrentTestConfig::get_recommended_reader_threads();
+    size_t actual_reader_thread_count = test_config.reader_thread_count;
     utils::log_info("Starting {} reader threads based on CPU cores (recommended count)", actual_reader_thread_count);
 
     std::vector<std::thread> reader_threads;
