@@ -9,7 +9,7 @@
 #include <CLI/CLI.hpp>
 
 #include "../core/strategy_db_manager.hpp"
-#include "../strategies/dual_rocksdb_strategy.hpp"
+#include "../strategies/direct_version_strategy.hpp"
 #include "../benchmark/strategy_scenario_runner.hpp"
 #include "../benchmark/metrics_collector.hpp"
 #include "../utils/data_generator.hpp"
@@ -21,10 +21,10 @@ using BlockNum = uint64_t;
 using Value = std::string;
 
 int main(int argc, char** argv) {
-    CLI::App app{"Initial Load Performance Test - 1B Keys"};
+    CLI::App app{"Initial Load Performance Test - Direct Strategy"};
     
     std::string db_path = "./rocksdb_data_initial_load_test";
-    size_t total_keys = 1000000;  // 100万条key
+    size_t total_keys = 100000000;  // 1亿条key
     bool verbose = false;
     
     app.add_option("-p,--db-path", db_path, "Database path")
@@ -55,31 +55,25 @@ int main(int argc, char** argv) {
             std::filesystem::remove_all(db_path);
         }
         
-        // 清理DualRocksDB的两个数据库
-        std::string range_db_path = db_path + "_range_index";
-        std::string data_db_path = db_path + "_data_storage";
+        // 清理Direct策略的单个数据库
+        std::string direct_db_path = db_path + "_direct";
         
-        if (std::filesystem::exists(range_db_path)) {
-            std::filesystem::remove_all(range_db_path);
-        }
-        if (std::filesystem::exists(data_db_path)) {
-            std::filesystem::remove_all(data_db_path);
+        if (std::filesystem::exists(direct_db_path)) {
+            std::filesystem::remove_all(direct_db_path);
         }
         
         std::cout << "Database cleanup completed" << std::endl;
         
-        // 创建DualRocksDB策略配置（参考run_sequential_benchmark.sh的大批量配置）
-        DualRocksDBStrategy::Config strategy_config;
-        strategy_config.range_size = 10000;
-        strategy_config.enable_dynamic_cache_optimization = false;  // 使用直接查询模式
-        strategy_config.batch_size_blocks = 10000;  // 每万个block刷写一次（与run_sequential_benchmark.sh一致）
-        strategy_config.max_batch_size_bytes = 322122547200ULL; // 300GB（与run_sequential_benchmark.sh一致）
+        // 创建Direct策略配置
+        DirectVersionStrategy::Config strategy_config;
+        strategy_config.batch_size_blocks = 10000;  // 每万个block刷写一次
+        strategy_config.max_batch_size_bytes = 322122547200ULL; // 300GB
         
-        // 创建DualRocksDB策略
-        auto strategy = std::make_unique<DualRocksDBStrategy>(strategy_config);
+        // 创建Direct策略
+        auto strategy = std::make_unique<DirectVersionStrategy>(strategy_config);
         
         // 创建数据库管理器
-        auto db_manager = std::make_shared<StrategyDBManager>(db_path, std::move(strategy));
+        auto db_manager = std::make_shared<StrategyDBManager>(direct_db_path, std::move(strategy));
         
         std::cout << "Opening database manager..." << std::endl;
         
@@ -105,10 +99,10 @@ int main(int argc, char** argv) {
         data_config.medium_count = static_cast<size_t>(total_keys * 0.2);  // 20% medium keys
         data_config.tail_count = total_keys - data_config.hotspot_count - data_config.medium_count;  // 70% tail keys
         
-        std::cout << "Creating DataGenerator with large batch configuration..." << std::endl;
+        std::cout << "Creating DataGenerator with Direct strategy configuration..." << std::endl;
         std::cout << "  Total keys: " << data_config.total_keys << std::endl;
         std::cout << "  Hot/Medium/Tail keys: " << data_config.hotspot_count << "/" << data_config.medium_count << "/" << data_config.tail_count << std::endl;
-        std::cout << "  Batch size blocks: " << strategy_config.batch_size_blocks << std::endl;
+        std::cout << "  Strategy: Direct Version Storage" << std::endl;
         std::cout << "  Max batch size bytes: " << (strategy_config.max_batch_size_bytes / 1024 / 1024 / 1024) << " GB" << std::endl;
         
         auto data_generator = std::make_unique<DataGenerator>(data_config);
@@ -116,8 +110,8 @@ int main(int argc, char** argv) {
         // 创建ScenarioRunner
         auto scenario_runner = std::make_unique<StrategyScenarioRunner>(db_manager, metrics_collector, benchmark_config, std::move(data_generator), 1, 1);
         
-        std::cout << "Starting initial load phase..." << std::endl;
-        std::cout << "This may take a while for 1B keys..." << std::endl;
+        std::cout << "Starting initial load phase with Direct strategy..." << std::endl;
+        std::cout << "This may take a while for 100M keys..." << std::endl;
         
         // 记录开始时间
         auto start_time = std::chrono::steady_clock::now();
@@ -140,13 +134,12 @@ int main(int argc, char** argv) {
         // 获取数据库统计信息
         scenario_runner->collect_rocksdb_statistics();
         
-        // 保持数据库不清理，用于recovery test
-        std::cout << "\nKeeping databases for recovery test..." << std::endl;
-        std::cout << "Range DB: " << range_db_path << std::endl;
-        std::cout << "Data DB: " << data_db_path << std::endl;
+        // 保持数据库不清理，用于性能测试
+        std::cout << "\nKeeping database for performance testing..." << std::endl;
+        std::cout << "Direct DB: " << direct_db_path << std::endl;
         db_manager.reset();  // 确保数据库正确关闭
         
-        std::cout << "Test completed successfully! Database kept for recovery test." << std::endl;
+        std::cout << "Test completed successfully! Database kept for performance testing." << std::endl;
         return 0;
         
     } catch (const std::exception& e) {
